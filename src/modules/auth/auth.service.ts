@@ -152,7 +152,11 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.authRepository.findByEmail(dto.email);
+    const identifier = dto.email.trim();
+    let user = await this.authRepository.findByEmail(identifier.toLowerCase());
+    if (!user) {
+      user = await this.authRepository.findByPhone(identifier);
+    }
     if (!user) {
       throw new UnauthorizedException('Invalid email or password');
     }
