@@ -1,0 +1,206 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum RequestStatus {
+  ACTIVE
+  DONE
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  REQUEST_ATTACHMENT
+  SYSTEM
+}
+
+model User {
+  id                    String              @id @default(uuid())
+  fullName              String
+  businessName          String?
+  email                 String              @unique
+  phoneNumber           String              @unique
+  passwordHash          String
+  avatarUrl             String?
+  subscriptionPlan      String              @default("Free")
+  isVerified            Boolean             @default(false)
+  verificationStatus    VerificationStatus  @default(UNVERIFIED)
+  cacRegistrationNumber String?
+  fcmToken              String?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  requests              Request[]           @relation("UserRequests")
+  fulfilledRequests     Request[]           @relation("FulfilledRequests")
+  interests             RequestInterest[]
+  chatThreadsAsUser     ChatThread[]        @relation("UserThreads")
+  chatThreadsAsVendor   ChatThread[]        @relation("VendorThreads")
+  messages              Message[]
+  inventoryItems        InventoryItem[]
+  teamInvitesSent       TeamInvite[]        @relation("SentInvites")
+  notifications         Notification[]
+  feedbacks             Feedback[]
+
+  @@index([email])
+  @@index([phoneNumber])
+}
+
+model OtpVerification {
+  id          String   @id @default(uuid())
+  destination String   // Email or Phone number
+  code        String   // 6-digit OTP
+  purpose     String   // "signup", "password_reset"
+  expiresAt   DateTime
+  verified    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([destination, purpose])
+}
+
+model TeamInvite {
+  id           String   @id @default(uuid())
+  inviterId    String
+  inviter      User     @relation("SentInvites", fields: [inviterId], references: [id], onDelete: Cascade)
+  inviteeEmail String
+  createdAt    DateTime @default(now())
+
+  @@unique([inviterId, inviteeEmail])
+  @@index([inviterId])
+}
+
+model Request {
+  id                    String            @id @default(uuid())
+  title                 String
+  status                RequestStatus     @default(ACTIVE)
+  requesterId           String
+  requester             User              @relation("UserRequests", fields: [requesterId], references: [id], onDelete: Cascade)
+  chosenVendorId        String?
+  fulfilledByVendorId   String?
+  fulfilledByVendor     User?             @relation("FulfilledRequests", fields: [fulfilledByVendorId], references: [id])
+  fulfilledAt           DateTime?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  interests             RequestInterest[]
+  chatThreads           ChatThread[]
+  messagesAsAttachment  Message[]         @relation("TaggedRequests")
+
+  @@index([requesterId])
+  @@index([status, createdAt])
+}
+
+model RequestInterest {
+  id          String   @id @default(uuid())
+  requestId   String
+  request     Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  vendorId    String
+  vendor      User     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  @@unique([requestId, vendorId])
+  @@index([requestId])
+  @@index([vendorId])
+}
+
+model ChatThread {
+  id               String       @id @default(uuid())
+  requestId        String
+  request          Request      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  creatorId        String
+  creator          User         @relation("UserThreads", fields: [creatorId], references: [id], onDelete: Cascade)
+  vendorId         String
+  vendor           User         @relation("VendorThreads", fields: [vendorId], references: [id], onDelete: Cascade)
+  lastMessageText  String?
+  lastMessageAt    DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  messages         Message[]
+
+  @@unique([requestId, vendorId])
+  @@index([creatorId])
+  @@index([vendorId])
+  @@index([requestId])
+}
+
+model Message {
+  id                 String       @id @default(uuid())
+  threadId           String
+  thread             ChatThread   @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId           String
+  sender             User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  text               String
+  imageUrl           String?
+  type               MessageType  @default(TEXT)
+  isSystem           Boolean      @default(false)
+  isDeleted          Boolean      @default(false)
+  taggedRequestId    String?
+  taggedRequest      Request?     @relation("TaggedRequests", fields: [taggedRequestId], references: [id])
+  replyToMessageId   String?
+  replyToMessage     Message?     @relation("ReplyRelation", fields: [replyToMessageId], references: [id])
+  replies            Message[]    @relation("ReplyRelation")
+  replyToSenderName  String?
+  readBy             String[]     @default([])
+  createdAt          DateTime     @default(now())
+
+  @@index([threadId, createdAt])
+  @@index([senderId])
+}
+
+model InventoryItem {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  rawInput    String
+  imageUrls   String[] @default([])
+  brand       String?
+  model       String?
+  storage     String?
+  condition   String?
+  color       String?
+  others      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([brand, model])
+  @@index([title])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  data      Json?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+model Feedback {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
