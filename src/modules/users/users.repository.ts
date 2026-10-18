@@ -18,7 +18,12 @@ export class UsersRepository {
         isVerified: true,
         verificationStatus: true,
         cacRegistrationNumber: true,
+        teamOwnerId: true,
+        cacSharedByOwnerName: true,
+        cacSharedByBusinessName: true,
         avatarUrl: true,
+        notificationsEnabled: true,
+        lastSeenAt: true,
         createdAt: true,
         teamInvitesSent: {
           select: {
@@ -62,18 +67,43 @@ export class UsersRepository {
         verificationStatus: true,
         cacRegistrationNumber: true,
         avatarUrl: true,
+        notificationsEnabled: true,
+        lastSeenAt: true,
         createdAt: true,
       },
     });
   }
 
-  async setBusinessVerified(id: string, cacNumber: string) {
+  async setBusinessVerified(
+    id: string,
+    cacNumber: string,
+    businessName?: string,
+  ) {
     return this.prisma.user.update({
       where: { id },
       data: {
         isVerified: true,
         verificationStatus: 'VERIFIED',
         cacRegistrationNumber: cacNumber,
+        ...(businessName ? { businessName } : {}),
+      },
+      select: {
+        id: true,
+        fullName: true,
+        businessName: true,
+        isVerified: true,
+        verificationStatus: true,
+        cacRegistrationNumber: true,
+      },
+    });
+  }
+
+  async setBusinessRejected(id: string) {
+    return this.prisma.user.update({
+      where: { id },
+      data: {
+        isVerified: false,
+        verificationStatus: 'REJECTED',
       },
       select: {
         id: true,
@@ -102,6 +132,25 @@ export class UsersRepository {
     });
   }
 
+  async findUsersByEmails(emails: string[]) {
+    if (!emails.length) return [];
+    return this.prisma.user.findMany({
+      where: {
+        email: {
+          in: emails.map((e) => e.toLowerCase()),
+        },
+      },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        avatarUrl: true,
+        teamOwnerId: true,
+        isVerified: true,
+      },
+    });
+  }
+
   async deleteTeamInvite(inviterId: string, email: string) {
     return this.prisma.teamInvite.deleteMany({
       where: {
@@ -118,4 +167,99 @@ export class UsersRepository {
       select: { id: true },
     });
   }
+
+  async blockAndReportVendor(userId: string, vendorId: string, reason?: string) {
+    return this.prisma.blockedVendor.upsert({
+      where: {
+        userId_vendorId: {
+          userId,
+          vendorId,
+        },
+      },
+      update: {
+        reason: reason || undefined,
+      },
+      create: {
+        userId,
+        vendorId,
+        reason,
+      },
+    });
+  }
+
+  async getBlockedVendorIds(userId: string): Promise<string[]> {
+    const blocks = await this.prisma.blockedVendor.findMany({
+      where: { userId },
+      select: { vendorId: true },
+    });
+    return blocks.map((b) => b.vendorId);
+  }
+
+  async findByEmail(email: string) {
+    return this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+      select: {
+        id: true,
+        fullName: true,
+        businessName: true,
+        email: true,
+        isVerified: true,
+        verificationStatus: true,
+        cacRegistrationNumber: true,
+        teamOwnerId: true,
+      },
+    });
+  }
+
+  async setUserTeamSharing(
+    userId: string,
+    ownerId: string,
+    ownerName: string,
+    businessName?: string | null,
+    cacNumber?: string | null,
+  ) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        isVerified: true,
+        verificationStatus: 'VERIFIED',
+        teamOwnerId: ownerId,
+        cacSharedByOwnerName: ownerName,
+        cacSharedByBusinessName: businessName || null,
+        cacRegistrationNumber: cacNumber || null,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        businessName: true,
+        isVerified: true,
+        verificationStatus: true,
+        cacRegistrationNumber: true,
+        teamOwnerId: true,
+        cacSharedByOwnerName: true,
+        cacSharedByBusinessName: true,
+      },
+    });
+  }
+
+  async clearUserTeamSharing(userId: string) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        isVerified: false,
+        verificationStatus: 'UNVERIFIED',
+        teamOwnerId: null,
+        cacSharedByOwnerName: null,
+        cacSharedByBusinessName: null,
+        cacRegistrationNumber: null,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        isVerified: true,
+        verificationStatus: true,
+      },
+    });
+  }
 }
+

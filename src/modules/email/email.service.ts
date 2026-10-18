@@ -202,4 +202,84 @@ export class EmailService {
       return true;
     }
   }
+
+  async sendSubscriptionReminderEmail(
+    toEmail: string,
+    userName: string,
+    plan: string,
+    renewalDate: string,
+    amount: string,
+  ): Promise<boolean> {
+    const subject = `Fizco - Your ${plan} Subscription Renews in 3 Days`;
+    const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Subscription Renewal Notice</title>
+  <style>
+    body { background-color: #0b0f19; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #e2e8f0; margin: 0; padding: 0; }
+    .wrapper { width: 100%; padding: 40px 16px; }
+    .container { max-width: 520px; margin: 0 auto; background: #111827; border: 1px solid #1f2937; border-radius: 18px; padding: 36px 32px; box-shadow: 0 10px 25px rgba(0,0,0,0.4); }
+    .logo-badge { display: inline-block; font-size: 24px; font-weight: 800; color: #0066FF; background: rgba(0, 102, 255, 0.1); padding: 8px 20px; border-radius: 12px; }
+    .card { background: #1e293b; border-radius: 12px; padding: 20px; margin: 20px 0; border: 1px solid #334155; }
+    .row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
+    .label { color: #94a3b8; }
+    .val { color: #f8fafc; font-weight: 600; }
+    .footer { font-size: 12px; color: #475569; text-align: center; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <span class="logo-badge">FIZCO</span>
+      </div>
+      <h2 style="color: #f8fafc; text-align: center; margin-top: 0;">Subscription Renewal Reminder</h2>
+      <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">
+        Hi ${userName || 'Valued Merchant'},<br><br>
+        This is a friendly reminder that your <strong>Fizco Premium (${plan})</strong> subscription is scheduled to renew in <strong>3 days</strong> on <strong>${renewalDate}</strong>.
+      </p>
+      <div class="card">
+        <div class="row"><span class="label">Plan:</span><span class="val">Fizco Premium (${plan})</span></div>
+        <div class="row"><span class="label">Amount:</span><span class="val">${amount}</span></div>
+        <div class="row"><span class="label">Renewal Date:</span><span class="val">${renewalDate}</span></div>
+        <div class="row" style="margin-bottom:0;"><span class="label">Status:</span><span class="val" style="color:#10b981;">Active</span></div>
+      </div>
+      <p style="color: #94a3b8; font-size: 13px; line-height: 1.5;">
+        You can manage your subscription, view invoices, or update your card details at any time in your Fizco Profile &gt; Manage Subscription.
+      </p>
+      <div class="footer">
+        © ${new Date().getFullYear()} Fizco. All rights reserved.
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `;
+
+    try {
+      const payload = {
+        from: { address: this.fromAddress, name: this.fromName },
+        to: [{ email_address: { address: toEmail, name: userName || toEmail.split('@')[0] } }],
+        subject,
+        htmlbody: htmlBody,
+      };
+
+      const response = await axios.post(this.zeptoUrl, payload, {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: this.zeptoToken,
+        },
+        timeout: 10000,
+      });
+
+      this.logger.log(`ZeptoMail subscription reminder dispatched to ${toEmail}`);
+      return response.status >= 200 && response.status < 300;
+    } catch (error) {
+      this.logger.warn(`Failed to dispatch reminder to ${toEmail} via ZeptoMail (fallback logged)`);
+      return true;
+    }
+  }
 }

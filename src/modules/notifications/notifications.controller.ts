@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { SaveFcmTokenDto } from './dto/save-token.dto';
+import { UpdateNotificationPreferencesDto } from './dto/update-preferences.dto';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PaginationQueryDto } from '../../common/dto/pagination.dto';
@@ -43,7 +44,37 @@ export class NotificationsController {
     return {
       message: 'Notifications retrieved',
       data: result.data,
+      unreadCount: result.unreadCount,
       meta: result.meta,
+    };
+  }
+
+  @Get('preferences')
+  async getPreferences(@CurrentUser() user: AuthenticatedUser) {
+    const data = await this.notificationsService.getPreferences(user.id);
+    return {
+      message: 'Notification preferences retrieved',
+      data,
+    };
+  }
+
+  @Patch('preferences')
+  async updatePreferences(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UpdateNotificationPreferencesDto,
+  ) {
+    const data = await this.notificationsService.updatePreferences(user.id, dto.enabled);
+    return {
+      message: 'Notification preferences updated',
+      data,
+    };
+  }
+
+  @Patch('read-all')
+  async markAllRead(@CurrentUser() user: AuthenticatedUser) {
+    await this.notificationsService.markAllAsRead(user.id);
+    return {
+      message: 'All notifications marked as read',
     };
   }
 
@@ -55,14 +86,6 @@ export class NotificationsController {
     await this.notificationsService.markAsRead(id, user.id);
     return {
       message: 'Notification marked as read',
-    };
-  }
-
-  @Patch('read-all')
-  async markAllRead(@CurrentUser() user: AuthenticatedUser) {
-    await this.notificationsService.markAllAsRead(user.id);
-    return {
-      message: 'All notifications marked as read',
     };
   }
 }

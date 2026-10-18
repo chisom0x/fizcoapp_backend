@@ -19,7 +19,12 @@ export class AuthRepository {
         isVerified: true,
         verificationStatus: true,
         cacRegistrationNumber: true,
+        teamOwnerId: true,
+        cacSharedByOwnerName: true,
+        cacSharedByBusinessName: true,
         avatarUrl: true,
+        notificationsEnabled: true,
+        lastSeenAt: true,
         createdAt: true,
       },
     });
@@ -39,7 +44,12 @@ export class AuthRepository {
         isVerified: true,
         verificationStatus: true,
         cacRegistrationNumber: true,
+        teamOwnerId: true,
+        cacSharedByOwnerName: true,
+        cacSharedByBusinessName: true,
         avatarUrl: true,
+        notificationsEnabled: true,
+        lastSeenAt: true,
         createdAt: true,
       },
     });
@@ -58,7 +68,12 @@ export class AuthRepository {
         isVerified: true,
         verificationStatus: true,
         cacRegistrationNumber: true,
+        teamOwnerId: true,
+        cacSharedByOwnerName: true,
+        cacSharedByBusinessName: true,
         avatarUrl: true,
+        notificationsEnabled: true,
+        lastSeenAt: true,
         createdAt: true,
       },
     });
@@ -71,13 +86,38 @@ export class AuthRepository {
     phoneNumber: string;
     passwordHash: string;
   }) {
-    return this.prisma.user.create({
+    const cleanEmail = data.email.toLowerCase();
+    // Check if there is an active team invite from a verified user
+    const pendingInvite = await this.prisma.teamInvite.findFirst({
+      where: { inviteeEmail: cleanEmail },
+      include: {
+        inviter: {
+          select: {
+            id: true,
+            fullName: true,
+            businessName: true,
+            isVerified: true,
+            cacRegistrationNumber: true,
+          },
+        },
+      },
+    });
+
+    const isShared = pendingInvite?.inviter?.isVerified === true;
+
+    const newUser = await this.prisma.user.create({
       data: {
         fullName: data.fullName,
         businessName: data.businessName,
-        email: data.email.toLowerCase(),
+        email: cleanEmail,
         phoneNumber: data.phoneNumber,
         passwordHash: data.passwordHash,
+        isVerified: isShared,
+        verificationStatus: isShared ? 'VERIFIED' : 'UNVERIFIED',
+        teamOwnerId: isShared ? pendingInvite.inviter.id : null,
+        cacSharedByOwnerName: isShared ? pendingInvite.inviter.fullName : null,
+        cacSharedByBusinessName: isShared ? pendingInvite.inviter.businessName : null,
+        cacRegistrationNumber: isShared ? pendingInvite.inviter.cacRegistrationNumber : null,
       },
       select: {
         id: true,
@@ -89,10 +129,20 @@ export class AuthRepository {
         isVerified: true,
         verificationStatus: true,
         cacRegistrationNumber: true,
+        teamOwnerId: true,
+        cacSharedByOwnerName: true,
+        cacSharedByBusinessName: true,
         avatarUrl: true,
+        notificationsEnabled: true,
+        lastSeenAt: true,
         createdAt: true,
       },
     });
+
+    return {
+      ...newUser,
+      inviterId: pendingInvite?.inviterId || pendingInvite?.inviter?.id || null,
+    };
   }
 
   async saveOtp(destination: string, code: string, purpose: string, expiresAt: Date) {

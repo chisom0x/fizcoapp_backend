@@ -69,6 +69,18 @@ export class RequestsController {
     };
   }
 
+  @Get(':id')
+  async getRequestById(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    const request = await this.requestsService.getRequestById(id);
+    return {
+      message: 'Request retrieved',
+      data: request,
+    };
+  }
+
   @Post(':id/interest')
   async showInterest(
     @CurrentUser() user: AuthenticatedUser,

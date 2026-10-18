@@ -7,12 +7,18 @@ import {
   Body,
   Param,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { VerifyBusinessDto } from './dto/verify-business.dto';
+import { VerifyCacDto } from './dto/verify-cac.dto';
 import { TeamInviteDto } from './dto/team-invite.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { BlockAndReportVendorDto } from './dto/block-and-report-vendor.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 
@@ -42,11 +48,63 @@ export class UsersController {
     };
   }
 
+  @Post('verify-cac')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB limit
+      },
+    }),
+  )
+  async verifyCac(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: VerifyCacDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException(
+        'CAC certificate document file is required (image or PDF, max 10MB)',
+      );
+    }
+    const result = await this.usersService.verifyCac(user.id, dto, file);
+    return {
+      message: result.isVerified
+        ? 'Business verified successfully'
+        : (result.reason || 'CAC verification failed'),
+      data: result,
+    };
+  }
+
   @Post('verify-business')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: 10 * 1024 * 1024,
+      },
+    }),
+  )
   async verifyBusiness(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: VerifyBusinessDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
+    if (file) {
+      const result = await this.usersService.verifyCac(
+        user.id,
+        {
+          businessName: dto.businessName || '',
+          registrationNumber:
+            dto.registrationNumber || dto.cacRegistrationNumber || '',
+        },
+        file,
+      );
+      return {
+        message: result.isVerified
+          ? 'Business verified successfully'
+          : (result.reason || 'CAC verification failed'),
+        data: result,
+      };
+    }
     const result = await this.usersService.verifyBusiness(user.id, dto);
     return {
       message: 'Business verified successfully',
@@ -86,6 +144,18 @@ export class UsersController {
     const result = await this.usersService.changePassword(user.id, dto);
     return {
       message: 'Password changed successfully',
+      data: result,
+    };
+  }
+
+  @Post('block-and-report')
+  async blockAndReport(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BlockAndReportVendorDto,
+  ) {
+    const result = await this.usersService.blockAndReportVendor(user.id, dto);
+    return {
+      message: 'Vendor blocked and reported successfully',
       data: result,
     };
   }

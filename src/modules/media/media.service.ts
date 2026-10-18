@@ -26,28 +26,38 @@ export class MediaService {
     folder = 'fizco/uploads',
   ): Promise<string> {
     if (!file || !file.buffer) {
-      throw new BadRequestException('No image file provided');
+      throw new BadRequestException('No file provided');
     }
 
-    // Validate mime type
-    if (!file.mimetype.startsWith('image/')) {
-      throw new BadRequestException('Only image files are allowed');
+    const ext = file.originalname ? file.originalname.toLowerCase() : '';
+    const isImage =
+      (file.mimetype && file.mimetype.startsWith('image/')) ||
+      /\.(jpe?g|png|webp|heic)$/i.test(ext);
+    const isPdf =
+      file.mimetype === 'application/pdf' ||
+      ext.endsWith('.pdf');
+    if (!isImage && !isPdf) {
+      throw new BadRequestException('Only image and PDF files are allowed');
     }
 
     return new Promise((resolve, reject) => {
+      const uploadOptions: Record<string, any> = {
+        folder,
+        resource_type: isPdf ? 'auto' : 'image',
+      };
+      if (isImage) {
+        uploadOptions.transformation = [
+          { quality: 'auto', fetch_format: 'auto' },
+          { width: 1400, crop: 'limit' },
+        ];
+      }
+
       const uploadStream = cloudinary.uploader.upload_stream(
-        {
-          folder,
-          resource_type: 'image',
-          transformation: [
-            { quality: 'auto', fetch_format: 'auto' },
-            { width: 1400, crop: 'limit' },
-          ],
-        },
+        uploadOptions,
         (error, result: UploadApiResponse | undefined) => {
           if (error) {
             this.logger.error(`Cloudinary upload failed: ${error.message}`);
-            return reject(new BadRequestException('Failed to upload image to Cloudinary'));
+            return reject(new BadRequestException('Failed to upload file to Cloudinary'));
           }
           if (!result) {
             return reject(new BadRequestException('Empty response from Cloudinary'));

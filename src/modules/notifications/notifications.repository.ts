@@ -64,6 +64,12 @@ export class NotificationsRepository {
     });
   }
 
+  async countUnread(userId: string): Promise<number> {
+    return this.prisma.notification.count({
+      where: { userId, isRead: false },
+    });
+  }
+
   async saveFcmToken(userId: string, fcmToken: string) {
     return this.prisma.user.update({
       where: { id: userId },
@@ -80,23 +86,40 @@ export class NotificationsRepository {
     return user?.fcmToken ?? null;
   }
 
-  async findVendorsWithMatchingInventory(brand: string, model: string, excludeUserId: string) {
-    return this.prisma.inventoryItem.findMany({
+  async getUserNotificationSettings(userId: string): Promise<{ fcmToken: string | null; notificationsEnabled: boolean }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { fcmToken: true, notificationsEnabled: true },
+    });
+    return {
+      fcmToken: user?.fcmToken ?? null,
+      notificationsEnabled: user?.notificationsEnabled ?? true,
+    };
+  }
+
+  async updateNotificationPreferences(userId: string, enabled: boolean) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { notificationsEnabled: enabled },
+      select: { id: true, notificationsEnabled: true },
+    });
+  }
+
+  async findVendorsWithMatchingInventory(
+    brand: string,
+    model: string,
+    excludeUserId: string,
+    keywords: string[] = [],
+  ) {
+    const items = await this.prisma.inventoryItem.findMany({
       where: {
         userId: { not: excludeUserId },
-        OR: [
-          {
-            AND: [
-              { brand: { equals: brand, mode: 'insensitive' } },
-              { model: { contains: model, mode: 'insensitive' } },
-            ],
-          },
-          {
-            title: { contains: model, mode: 'insensitive' },
-          },
-        ],
       },
       select: {
+        id: true,
+        title: true,
+        brand: true,
+        model: true,
         userId: true,
         user: {
           select: {
@@ -106,7 +129,55 @@ export class NotificationsRepository {
           },
         },
       },
-      distinct: ['userId'],
     });
+
+    const matchingVendors = new Map<string, { userId: string; user: { id: string; fcmToken: string | null; fullName: string } }>();
+    const targetBrand = (brand || '').toLowerCase().trim();
+    const cleanModel = (model || '').toLowerCase().trim();
+
+    for (const item of items) {
+      const itemTitle = (item.title || '').toLowerCase();
+      const itemBrand = (item.brand || '').toLowerCase();
+      const itemModel = (item.model || '').toLowerCase();
+
+      // 1. Brand match check
+      const brandMatches =
+        targetBrand === 'other' ||
+        targetBrand === '' ||
+        itemBrand.includes(targetBrand) ||
+        targetBrand.includes(itemBrand) ||
+        itemTitle.includes(targetBrand);
+
+      if (!brandMatches) continue;
+
+      // 2. Gadget name / model keywords check
+      let matchesGadget = false;
+
+      if (keywords.length > 0) {
+        // Count how many keywords appear in item title or model
+        const matchCount = keywords.filter(
+          (kw) => itemTitle.includes(kw) || itemModel.includes(kw),
+        ).length;
+        const required = Math.max(1, Math.min(2, Math.ceil(keywords.length * 0.4)));
+        matchesGadget = matchCount >= required;
+      }
+
+      if (!matchesGadget && cleanModel.length > 0) {
+        matchesGadget =
+          itemTitle.includes(cleanModel) ||
+          cleanModel.includes(itemTitle) ||
+          itemModel.includes(cleanModel) ||
+          cleanModel.includes(itemModel);
+      }
+
+      if (matchesGadget) {
+        matchingVendors.set(item.userId, {
+          userId: item.userId,
+          user: item.user,
+        });
+      }
+    }
+
+    return Array.from(matchingVendors.values());
   }
 }

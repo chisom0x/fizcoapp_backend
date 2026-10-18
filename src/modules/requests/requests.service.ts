@@ -23,6 +23,17 @@ export class RequestsService {
   ) {}
 
   async create(userId: string, dto: CreateRequestDto) {
+    const userPlan = await this.requestsRepository.getUserSubscriptionPlan(userId);
+    const isPremium = userPlan.toLowerCase() === 'premium';
+    if (!isPremium) {
+      const count = await this.requestsRepository.countUserRequests(userId);
+      if (count >= 1) {
+        throw new ForbiddenException(
+          'Free plan is limited to 1 request in total. Upgrade to Premium for unlimited requests.',
+        );
+      }
+    }
+
     const request = await this.requestsRepository.create(userId, dto.title);
 
     const formatted = {
@@ -45,19 +56,129 @@ export class RequestsService {
     return formatted;
   }
 
+  private extractGadgetBrandAndKeywords(title: string): {
+    brand: string;
+    model: string;
+    keywords: string[];
+  } {
+    const cleanTitle = title.toLowerCase();
+
+    // Map of common gadget brands
+    const brandMap: Record<string, string[]> = {
+      Apple: ['apple', 'iphone', 'ipad', 'macbook', 'imac', 'airpod', 'airpods', 'iwatch', 'apple watch'],
+      Samsung: ['samsung', 'galaxy', 'z fold', 'z flip'],
+      Google: ['google', 'pixel'],
+      Sony: ['sony', 'playstation', 'ps5', 'ps4', 'xperia'],
+      Microsoft: ['microsoft', 'surface', 'xbox'],
+      Dell: ['dell', 'alienware', 'xps', 'latitude'],
+      HP: ['hp', 'hewlett', 'envy', 'spectre', 'pavilion', 'omen', 'elitebook'],
+      Lenovo: ['lenovo', 'thinkpad', 'legion', 'ideapad'],
+      Asus: ['asus', 'rog', 'zenbook', 'tuf'],
+      Acer: ['acer', 'predator', 'nitro', 'swift'],
+      Xiaomi: ['xiaomi', 'redmi', 'poco'],
+      Tecno: ['tecno', 'camon', 'phantom', 'spark'],
+      Infinix: ['infinix', 'zero', 'note', 'hot'],
+      OnePlus: ['oneplus', 'nord'],
+      Huawei: ['huawei', 'mate'],
+      Nintendo: ['nintendo', 'switch'],
+    };
+
+    let detectedBrand = 'Other';
+    for (const [brand, triggers] of Object.entries(brandMap)) {
+      if (triggers.some((t) => cleanTitle.includes(t))) {
+        detectedBrand = brand;
+        break;
+      }
+    }
+
+    // Common noise words in user requests
+    const noiseWords = new Set([
+      'needed', 'need', 'needs', 'needing', 'urgently', 'urgent', 'looking', 'for', 'want', 'wanted',
+      'pls', 'please', 'help', 'dm', 'available', 'avail', 'brand', 'new', 'clean', 'used',
+      'foreign', 'nigerian', 'tokunbo', 'mint', 'receipt', 'box', 'packaged', 'fu', 'factory',
+      'unlocked', 'open', 'sealed', 'original', 'cheap', 'budget', 'asap', 'today', 'ready',
+      'cash', 'buyer', 'with', 'and', 'or', 'in', 'at', 'on', 'a', 'an', 'the', 'of', 'to',
+      'price', 'swap', 'trade', 'condition', 'storage', 'color', 'colour', 'blue', 'black', 'white',
+      'gold', 'silver', 'purple', 'grey', 'gray', 'pink', 'red', 'green', 'yellow', 'titanium',
+      'gb', 'tb', 'ram', 'rom', 'battery', 'health', 'bh',
+    ]);
+
+    const rawTokens = cleanTitle
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+
+    const keywords = rawTokens.filter((token) => {
+      if (noiseWords.has(token)) return false;
+      if (/^\d+(gb|tb|mb)$/i.test(token)) return false;
+      if (/^(16|32|64|128|256|512|1024)$/.test(token)) return false;
+      return token.length > 1;
+    });
+
+    const model = keywords.join(' ');
+
+    return {
+      brand: detectedBrand,
+      model: model.length > 0 ? model : title,
+      keywords,
+    };
+  }
+
   private async matchAndNotifyVendors(
     requestId: string,
     title: string,
     requesterId: string,
   ) {
     try {
-      const parsed = await this.aiService.parseProductInput(title);
+      const localExtracted = this.extractGadgetBrandAndKeywords(title);
+      let brand = localExtracted.brand;
+      let model = localExtracted.model;
+      const keywords = localExtracted.keywords;
+
+      // Attempt AI enrichment if available, but never fail if unreachable
+      try {
+        const parsed = await this.aiService.parseProductInput(title);
+        if (parsed.brand && parsed.brand !== 'Other') {
+          brand = parsed.brand;
+        }
+        if (parsed.model) {
+          model = parsed.model;
+          const aiTokens = parsed.model
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .split(/\s+/)
+            .filter((t) => t.length > 1);
+          for (const token of aiTokens) {
+            if (!keywords.includes(token)) keywords.push(token);
+          }
+        }
+      } catch {
+        // AI service is optional; fallback to deterministic local heuristic
+      }
+
       await this.notificationsService.notifyMatchingVendors(
         requestId,
         title,
-        parsed.brand,
-        parsed.model,
+        brand,
+        model,
         requesterId,
+        (vendorUserId, payload) => {
+          this.chatGateway.server
+            ?.to(`user_${vendorUserId}`)
+            .emit('new_notification', payload);
+          this.chatGateway.server
+            ?.to(`user_${vendorUserId}`)
+            .emit('request_match', payload);
+          this.chatGateway.server?.emit('new_notification', {
+            ...payload,
+            recipientId: vendorUserId,
+          });
+          this.chatGateway.server?.emit('request_match', {
+            ...payload,
+            recipientId: vendorUserId,
+          });
+        },
+        keywords,
       );
     } catch {
       // Background notifications don't interrupt request creation
@@ -76,6 +197,7 @@ export class RequestsService {
     const formatted = items.map((r) => ({
       id: r.id,
       title: r.title,
+      requesterId: r.requester.id,
       requesterName: r.requester.fullName,
       isRequesterVerified: r.requester.isVerified,
       isUserRequest: false,
@@ -107,6 +229,7 @@ export class RequestsService {
       const interestedVendors = r.interests.map((i) => {
         const thread = r.chatThreads.find((t) => t.vendorId === i.vendor.id);
         const lastMsg = thread?.messages?.[0];
+        const unreadCount = (thread as any)?._count?.messages || 0;
 
         return {
           id: i.vendor.id,
@@ -115,7 +238,7 @@ export class RequestsService {
           lastMessage: lastMsg?.text || 'Interest shown',
           lastMessageTime: lastMsg?.createdAt || r.createdAt,
           lastMessageSentByMe: lastMsg?.senderId === userId,
-          unreadCount: 0,
+          unreadCount,
         };
       });
 
@@ -146,6 +269,17 @@ export class RequestsService {
   }
 
   async showInterest(requestId: string, vendorId: string, vendorName: string) {
+    const vendorPlan = await this.requestsRepository.getUserSubscriptionPlan(vendorId);
+    const isPremium = vendorPlan.toLowerCase() === 'premium';
+    if (!isPremium) {
+      const interestsCount = await this.requestsRepository.countUserInterests(vendorId);
+      if (interestsCount >= 1) {
+        throw new ForbiddenException(
+          'You have reached your 1 free request interest limit. Upgrade to Fizco Premium to show interest in unlimited requests.',
+        );
+      }
+    }
+
     const request = await this.requestsRepository.findById(requestId);
     if (!request) {
       throw new NotFoundException('Request not found');
@@ -162,7 +296,25 @@ export class RequestsService {
       vendorId,
     );
 
-    // Notify requester
+    // Notify requester via push notification and real-time socket
+    this.chatGateway.server?.to(`user_${request.requesterId}`).emit('new_chat_thread', {
+      threadId: chatThread.id,
+      requestId,
+      vendorId,
+      vendorName,
+    });
+    this.chatGateway.server?.to(`user_${request.requesterId}`).emit('vendor_interest', {
+      threadId: chatThread.id,
+      requestId,
+      vendorId,
+      vendorName,
+    });
+    this.chatGateway.server?.to(`user_${request.requesterId}`).emit('new_notification', {
+      title: '🤝 New Vendor Interest!',
+      body: `${vendorName} is interested in supplying your request for "${request.title}".`,
+      data: { requestId, chatThreadId: chatThread.id, type: 'VENDOR_INTEREST' },
+    });
+
     await this.notificationsService.notifyUser(
       request.requesterId,
       '🤝 New Vendor Interest!',
@@ -213,20 +365,7 @@ export class RequestsService {
   }
 
   async update(requestId: string, requesterId: string, dto: UpdateRequestDto) {
-    const request = await this.requestsRepository.findById(requestId);
-    if (!request) {
-      throw new NotFoundException('Request not found');
-    }
-
-    if (request.requesterId !== requesterId) {
-      throw new ForbiddenException('Only the requester can edit this request');
-    }
-
-    await this.requestsRepository.updateTitle(requestId, requesterId, dto.title);
-    return {
-      id: requestId,
-      title: dto.title,
-    };
+    throw new BadRequestException('Vendors cannot edit requests; requests can only be deleted.');
   }
 
   async remove(requestId: string, requesterId: string) {
@@ -240,9 +379,21 @@ export class RequestsService {
     }
 
     await this.requestsRepository.delete(requestId, requesterId);
+
+    // Broadcast deletion in real-time to all connected mobile clients
+    this.chatGateway.broadcastDeletedRequest(requestId);
+
     return {
       deleted: true,
       id: requestId,
     };
+  }
+
+  async getRequestById(requestId: string) {
+    const request = await this.requestsRepository.findById(requestId);
+    if (!request || request.isDeleted) {
+      throw new NotFoundException('Request not found or has been deleted');
+    }
+    return request;
   }
 }

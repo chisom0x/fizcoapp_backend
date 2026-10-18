@@ -35,10 +35,19 @@ model User {
   passwordHash          String
   avatarUrl             String?
   subscriptionPlan      String              @default("Free")
+  bachsCustomerId       String?
+  paystackCustomerId    String?
   isVerified            Boolean             @default(false)
   verificationStatus    VerificationStatus  @default(UNVERIFIED)
   cacRegistrationNumber String?
+  teamOwnerId           String?
+  teamOwner             User?               @relation("TeamMembers", fields: [teamOwnerId], references: [id], onDelete: SetNull)
+  teamMembers           User[]              @relation("TeamMembers")
+  cacSharedByOwnerName  String?
+  cacSharedByBusinessName String?
   fcmToken              String?
+  notificationsEnabled  Boolean             @default(true)
+  lastSeenAt            DateTime?
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
 
@@ -52,6 +61,10 @@ model User {
   teamInvitesSent       TeamInvite[]        @relation("SentInvites")
   notifications         Notification[]
   feedbacks             Feedback[]
+  subscription          Subscription?
+  subscriptionTransactions SubscriptionTransaction[]
+  blocksInitiated       BlockedVendor[]     @relation("BlocksInitiated")
+  blocksReceived        BlockedVendor[]     @relation("BlocksReceived")
 
   @@index([email])
   @@index([phoneNumber])
@@ -84,6 +97,7 @@ model Request {
   id                    String            @id @default(uuid())
   title                 String
   status                RequestStatus     @default(ACTIVE)
+  isDeleted             Boolean           @default(false)
   requesterId           String
   requester             User              @relation("UserRequests", fields: [requesterId], references: [id], onDelete: Cascade)
   chosenVendorId        String?
@@ -147,11 +161,12 @@ model Message {
   isSystem           Boolean      @default(false)
   isDeleted          Boolean      @default(false)
   taggedRequestId    String?
-  taggedRequest      Request?     @relation("TaggedRequests", fields: [taggedRequestId], references: [id])
+  taggedRequest      Request?     @relation("TaggedRequests", fields: [taggedRequestId], references: [id], onDelete: SetNull)
   replyToMessageId   String?
   replyToMessage     Message?     @relation("ReplyRelation", fields: [replyToMessageId], references: [id])
   replies            Message[]    @relation("ReplyRelation")
   replyToSenderName  String?
+  replyToText        String?
   readBy             String[]     @default([])
   createdAt          DateTime     @default(now())
 
@@ -203,4 +218,72 @@ model Feedback {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+model Subscription {
+  id                       String                    @id @default(uuid())
+  userId                   String                    @unique
+  user                     User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bachsSubscriptionId      String?                   @unique
+  bachsCustomerId          String?
+  bachsProductId           String?
+  paystackSubscriptionCode String?                   @unique
+  paystackCustomerCode     String?
+  paystackPlanCode         String?
+  paystackEmailToken       String?
+  plan                     String                    // "monthly", "quarterly", "yearly"
+  status                   String                    @default("active") // "active", "past_due", "canceled", "expired", "free"
+  amount                   Float
+  currency                 String                    @default("NGN")
+  interval                 String                    // "month", "quarter", "year"
+  currentPeriodStart       DateTime                  @default(now())
+  currentPeriodEnd         DateTime
+  cancelAtPeriodEnd        Boolean                   @default(false)
+  canceledAt               DateTime?
+  reminderSentAt           DateTime?
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+
+  transactions             SubscriptionTransaction[]
+
+  @@index([userId])
+  @@index([status, currentPeriodEnd])
+}
+
+model SubscriptionTransaction {
+  id                    String        @id @default(uuid())
+  userId                String
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId        String?
+  subscription          Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  bachsPaymentId        String?
+  bachsCheckoutId       String?
+  paystackReference     String?
+  paystackTransactionId String?
+  amount                Float
+  currency              String        @default("NGN")
+  status                String        // "PENDING", "SUCCESS", "FAILED"
+  paymentMethod         String?
+  description           String?
+  metadata              Json?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([subscriptionId])
+  @@index([status, createdAt])
+}
+
+model BlockedVendor {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation("BlocksInitiated", fields: [userId], references: [id], onDelete: Cascade)
+  vendorId  String
+  vendor    User     @relation("BlocksReceived", fields: [vendorId], references: [id], onDelete: Cascade)
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, vendorId])
+  @@index([userId])
+  @@index([vendorId])
 }

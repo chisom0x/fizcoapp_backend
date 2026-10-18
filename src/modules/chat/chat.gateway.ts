@@ -8,7 +8,7 @@ import {
   MessageBody,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, forwardRef } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { ChatService } from './chat.service';
@@ -25,11 +25,33 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(ChatGateway.name);
 
+  // Presence and active thread tracking
+  private readonly connectedUsers = new Map<string, Set<string>>(); // userId -> Set<socketId>
+  private readonly userActiveThreads = new Map<string, Set<string>>(); // userId -> Set<threadId>
+  private readonly socketUsers = new Map<string, string>(); // socketId -> userId
+  private readonly socketThreads = new Map<string, Set<string>>(); // socketId -> Set<threadId>
+
   constructor(
+    @Inject(forwardRef(() => ChatService))
     private readonly chatService: ChatService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
   ) {}
+
+  isUserOnline(userId: string): boolean {
+    return (this.connectedUsers.get(userId)?.size ?? 0) > 0;
+  }
+
+  isUserInThread(userId: string, threadId: string): boolean {
+    const threads = this.userActiveThreads.get(userId);
+    if (!threads || threads.size === 0) return false;
+    const clean = threadId.replace('chat_', '');
+    return (
+      threads.has(threadId) ||
+      threads.has(clean) ||
+      threads.has(`chat_${clean}`)
+    );
+  }
 
   async handleConnection(client: Socket) {
     try {
@@ -48,28 +70,113 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         'fizco_jwt_access_secret_2026';
       const payload = this.jwtService.verify(token, { secret });
 
-      client.data.userId = payload.sub;
+      const userId = payload.sub;
+      client.data.userId = userId;
       client.data.email = payload.email;
 
+      this.socketUsers.set(client.id, userId);
+
+      let userSockets = this.connectedUsers.get(userId);
+      const wasOffline = !userSockets || userSockets.size === 0;
+      if (!userSockets) {
+        userSockets = new Set();
+        this.connectedUsers.set(userId, userSockets);
+      }
+      userSockets.add(client.id);
+
       // Join individual user room for direct alerts
-      client.join(`user_${payload.sub}`);
-      this.logger.log(`Client connected: ${client.id} (User: ${payload.sub})`);
+      client.join(`user_${userId}`);
+      this.logger.log(`Client connected: ${client.id} (User: ${userId})`);
+
+      // Broadcast online status to all if user was previously offline
+      if (wasOffline) {
+        this.server.emit('user_status', {
+          userId,
+          isOnline: true,
+        });
+      }
     } catch {
       client.disconnect();
     }
   }
 
   handleDisconnect(client: Socket) {
+    const userId = this.socketUsers.get(client.id) || client.data.userId;
+    this.socketUsers.delete(client.id);
+
+    // Clean up active threads tracked for this socket
+    const sThreads = this.socketThreads.get(client.id);
+    if (sThreads && userId) {
+      const uThreads = this.userActiveThreads.get(userId);
+      if (uThreads) {
+        for (const t of sThreads) {
+          uThreads.delete(t);
+        }
+      }
+      this.socketThreads.delete(client.id);
+    }
+
+    if (userId) {
+      const userSockets = this.connectedUsers.get(userId);
+      if (userSockets) {
+        userSockets.delete(client.id);
+        if (userSockets.size === 0) {
+          this.connectedUsers.delete(userId);
+          const now = new Date();
+          // Update lastSeen in database and broadcast offline status
+          this.chatService.updateUserLastSeen(userId, now).catch(() => {});
+          this.server.emit('user_status', {
+            userId,
+            isOnline: false,
+            lastSeenAt: now.toISOString(),
+          });
+        }
+      }
+    }
+
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 
   @SubscribeMessage('join_thread')
-  handleJoinThread(
+  async handleJoinThread(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { threadId: string },
   ) {
+    const userId = client.data.userId;
     if (data?.threadId) {
-      client.join(`chat_${data.threadId}`);
+      const cleanId = data.threadId.replace('chat_', '');
+      client.join(`chat_${cleanId}`);
+      client.join(cleanId);
+      client.join(data.threadId);
+
+      if (userId) {
+        let uThreads = this.userActiveThreads.get(userId);
+        if (!uThreads) {
+          uThreads = new Set();
+          this.userActiveThreads.set(userId, uThreads);
+        }
+        uThreads.add(data.threadId);
+        uThreads.add(cleanId);
+        uThreads.add(`chat_${cleanId}`);
+
+        let sThreads = this.socketThreads.get(client.id);
+        if (!sThreads) {
+          sThreads = new Set();
+          this.socketThreads.set(client.id, sThreads);
+        }
+        sThreads.add(data.threadId);
+        sThreads.add(cleanId);
+        sThreads.add(`chat_${cleanId}`);
+      }
+
+      // Send initial participant status to joining user
+      const participantStatus = await this.chatService.getThreadParticipantStatus(
+        data.threadId,
+        userId,
+      );
+      if (participantStatus) {
+        client.emit('thread_participant_status', participantStatus);
+      }
     }
   }
 
@@ -78,8 +185,27 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { threadId: string },
   ) {
+    const userId = client.data.userId;
     if (data?.threadId) {
-      client.leave(`chat_${data.threadId}`);
+      const cleanId = data.threadId.replace('chat_', '');
+      client.leave(`chat_${cleanId}`);
+      client.leave(cleanId);
+      client.leave(data.threadId);
+
+      if (userId) {
+        const uThreads = this.userActiveThreads.get(userId);
+        if (uThreads) {
+          uThreads.delete(data.threadId);
+          uThreads.delete(cleanId);
+          uThreads.delete(`chat_${cleanId}`);
+        }
+      }
+      const sThreads = this.socketThreads.get(client.id);
+      if (sThreads) {
+        sThreads.delete(data.threadId);
+        sThreads.delete(cleanId);
+        sThreads.delete(`chat_${cleanId}`);
+      }
     }
   }
 
@@ -98,18 +224,35 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       data.payload,
     );
 
-    // Broadcast to everyone in the chat room
-    this.server.to(`chat_${data.threadId}`).emit('new_message', {
-      threadId: data.threadId,
-      message: result,
-    });
+    const resolvedId = result.threadId || data.threadId;
+    const socketPayload = {
+      threadId: resolvedId,
+      message: {
+        ...result,
+        senderId: result.senderId || userId,
+        isFromMe: false,
+      },
+    };
 
-    // Also emit to recipient's direct room in case they aren't actively in this thread screen
+    const rooms = new Set([
+      `chat_${resolvedId}`,
+      resolvedId,
+      `chat_${data.threadId}`,
+      data.threadId,
+    ]);
+
+    for (const room of rooms) {
+      this.server.to(room).emit('new_message', socketPayload);
+    }
+
+    // Also emit to recipient's direct room so they receive the live message
     if (result.recipientId) {
-      this.server.to(`user_${result.recipientId}`).emit('chat_notification', {
-        threadId: data.threadId,
-        message: result,
-      });
+      this.server.to(`user_${result.recipientId}`).emit('new_message', socketPayload);
+      const isRecipientInThread = this.isUserInThread(result.recipientId, resolvedId);
+      if (!isRecipientInThread) {
+        this.server.to(`user_${result.recipientId}`).emit('chat_notification', socketPayload);
+        this.server.to(`user_${result.recipientId}`).emit('new_chat_thread', socketPayload);
+      }
     }
 
     return result;
@@ -121,10 +264,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { threadId: string; isTyping: boolean },
   ) {
     const userId = client.data.userId;
-    client.to(`chat_${data.threadId}`).emit('user_typing', {
+    if (!userId || !data?.threadId) return;
+    const cleanId = data.threadId.replace('chat_', '');
+    const payload = {
       threadId: data.threadId,
+      cleanThreadId: cleanId,
       userId,
-      isTyping: data.isTyping,
+      isTyping: !!data.isTyping,
+    };
+    client.to(`chat_${cleanId}`).emit('user_typing', payload);
+    client.to(cleanId).emit('user_typing', payload);
+    client.to(`chat_${data.threadId}`).emit('user_typing', payload);
+  }
+
+  @SubscribeMessage('get_user_status')
+  async handleGetUserStatus(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { userId: string },
+  ) {
+    if (!data?.userId) return;
+    const isOnline = this.isUserOnline(data.userId);
+    const lastSeenAt = isOnline ? null : await this.chatService.getUserLastSeen(data.userId);
+    client.emit('user_status', {
+      userId: data.userId,
+      isOnline,
+      lastSeenAt: lastSeenAt ? (lastSeenAt instanceof Date ? lastSeenAt.toISOString() : String(lastSeenAt)) : null,
     });
   }
 
@@ -134,7 +298,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() data: { threadId: string; messageId: string },
   ) {
     const userId = client.data.userId;
-    if (!userId) return;
+    if (!userId || !data?.messageId) return;
 
     const result = await this.chatService.deleteMessage(
       data.threadId,
@@ -142,10 +306,31 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       userId,
     );
 
-    this.server.to(`chat_${data.threadId}`).emit('message_deleted', {
-      threadId: data.threadId,
+    const resolvedId = result.threadId || data.threadId;
+    const socketPayload = {
+      threadId: resolvedId,
+      originalThreadId: data.threadId,
       messageId: data.messageId,
-    });
+      id: data.messageId,
+      isDeleted: true,
+      text: 'This message was deleted',
+    };
+
+    const rooms = new Set([
+      `chat_${resolvedId}`,
+      resolvedId,
+      `chat_${data.threadId}`,
+      data.threadId,
+    ]);
+
+    for (const room of rooms) {
+      this.server.to(room).emit('message_deleted', socketPayload);
+    }
+
+    if (result.recipientId) {
+      this.server.to(`user_${result.recipientId}`).emit('message_deleted', socketPayload);
+    }
+    this.server.to(`user_${userId}`).emit('message_deleted', socketPayload);
 
     return result;
   }
@@ -153,6 +338,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   broadcastNewRequest(request: any) {
     if (this.server) {
       this.server.emit('new_open_request', request);
+    }
+  }
+
+  broadcastDeletedRequest(requestId: string) {
+    if (this.server) {
+      this.server.emit('request_deleted', { requestId, id: requestId });
     }
   }
 }

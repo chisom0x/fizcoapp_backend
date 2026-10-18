@@ -30,9 +30,25 @@ export class RequestsRepository {
   }
 
   async findOpenRequests(currentUserId: string, skip = 0, take = 20, search?: string) {
+    const blocked = await this.prisma.blockedVendor.findMany({
+      where: {
+        OR: [
+          { userId: currentUserId },
+          { vendorId: currentUserId },
+        ],
+      },
+      select: { userId: true, vendorId: true },
+    });
+    const excludedUserIds = new Set<string>([currentUserId]);
+    for (const b of blocked) {
+      if (b.userId === currentUserId) excludedUserIds.add(b.vendorId);
+      if (b.vendorId === currentUserId) excludedUserIds.add(b.userId);
+    }
+
     const whereClause: any = {
       status: RequestStatus.ACTIVE,
-      requesterId: { not: currentUserId },
+      isDeleted: false,
+      requesterId: { notIn: Array.from(excludedUserIds) },
     };
 
     if (search && search.trim()) {
@@ -72,7 +88,7 @@ export class RequestsRepository {
   async findMyRequests(userId: string, skip = 0, take = 20) {
     const [items, total] = await Promise.all([
       this.prisma.request.findMany({
-        where: { requesterId: userId },
+        where: { requesterId: userId, isDeleted: false },
         orderBy: { createdAt: 'desc' },
         skip,
         take,
@@ -118,6 +134,20 @@ export class RequestsRepository {
                   senderId: true,
                 },
               },
+              _count: {
+                select: {
+                  messages: {
+                    where: {
+                      senderId: { not: userId },
+                      NOT: {
+                        readBy: {
+                          has: userId,
+                        },
+                      },
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -135,6 +165,7 @@ export class RequestsRepository {
         id: true,
         title: true,
         status: true,
+        isDeleted: true,
         requesterId: true,
         chosenVendorId: true,
         fulfilledByVendorId: true,
@@ -182,8 +213,9 @@ export class RequestsRepository {
   }
 
   async delete(id: string, requesterId: string) {
-    return this.prisma.request.deleteMany({
+    return this.prisma.request.updateMany({
       where: { id, requesterId },
+      data: { isDeleted: true },
     });
   }
 
@@ -204,13 +236,15 @@ export class RequestsRepository {
   }
 
   async getOrCreateChatThread(requestId: string, creatorId: string, vendorId: string) {
-    const existing = await this.prisma.chatThread.findUnique({
+    // 1. Check if ANY thread already exists between these two users (either direction)
+    const existing = await this.prisma.chatThread.findFirst({
       where: {
-        requestId_vendorId: {
-          requestId,
-          vendorId,
-        },
+        OR: [
+          { creatorId, vendorId },
+          { creatorId: vendorId, vendorId: creatorId },
+        ],
       },
+      orderBy: { updatedAt: 'desc' },
       select: {
         id: true,
         requestId: true,
@@ -219,7 +253,16 @@ export class RequestsRepository {
       },
     });
 
-    if (existing) return existing;
+    if (existing) {
+      await this.prisma.chatThread.update({
+        where: { id: existing.id },
+        data: { requestId, updatedAt: new Date() },
+      });
+      return {
+        ...existing,
+        requestId,
+      };
+    }
 
     return this.prisma.chatThread.create({
       data: {
@@ -235,4 +278,25 @@ export class RequestsRepository {
       },
     });
   }
+
+  async countUserRequests(requesterId: string): Promise<number> {
+    return this.prisma.request.count({
+      where: { requesterId },
+    });
+  }
+
+  async countUserInterests(vendorId: string): Promise<number> {
+    return this.prisma.requestInterest.count({
+      where: { vendorId },
+    });
+  }
+
+  async getUserSubscriptionPlan(userId: string): Promise<string> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { subscriptionPlan: true },
+    });
+    return user?.subscriptionPlan || 'Free';
+  }
 }
+

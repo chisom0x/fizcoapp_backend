@@ -41,7 +41,7 @@ export class ChatController {
     @Query() query: PaginationQueryDto,
   ) {
     const page = query.page || 1;
-    const limit = query.limit || 50;
+    const limit = query.limit && query.limit !== 10 ? query.limit : 100;
     const skip = (page - 1) * limit;
 
     const messages = await this.chatService.getThreadMessages(
@@ -72,15 +72,34 @@ export class ChatController {
 
     // Broadcast in real-time to active socket room and recipient
     if (this.chatGateway.server) {
-      this.chatGateway.server.to(`chat_${threadId}`).emit('new_message', {
+      const resolvedId = message.threadId || threadId;
+      const socketPayload = {
+        threadId: resolvedId,
+        message: {
+          ...message,
+          senderId: message.senderId || user.id,
+          isFromMe: false,
+        },
+      };
+
+      const rooms = new Set([
+        `chat_${resolvedId}`,
+        resolvedId,
+        `chat_${threadId}`,
         threadId,
-        message,
-      });
+      ]);
+
+      for (const room of rooms) {
+        this.chatGateway.server.to(room).emit('new_message', socketPayload);
+      }
+
       if (message.recipientId) {
-        this.chatGateway.server.to(`user_${message.recipientId}`).emit('chat_notification', {
-          threadId,
-          message,
-        });
+        this.chatGateway.server.to(`user_${message.recipientId}`).emit('new_message', socketPayload);
+        const isRecipientInThread = this.chatGateway.isUserInThread(message.recipientId, resolvedId);
+        if (!isRecipientInThread) {
+          this.chatGateway.server.to(`user_${message.recipientId}`).emit('chat_notification', socketPayload);
+          this.chatGateway.server.to(`user_${message.recipientId}`).emit('new_chat_thread', socketPayload);
+        }
       }
     }
 
@@ -103,10 +122,31 @@ export class ChatController {
     );
 
     if (this.chatGateway.server) {
-      this.chatGateway.server.to(`chat_${threadId}`).emit('message_deleted', {
-        threadId,
+      const resolvedId = result.threadId || threadId;
+      const socketPayload = {
+        threadId: resolvedId,
+        originalThreadId: threadId,
         messageId,
-      });
+        id: messageId,
+        isDeleted: true,
+        text: 'This message was deleted',
+      };
+
+      const rooms = new Set([
+        `chat_${resolvedId}`,
+        resolvedId,
+        `chat_${threadId}`,
+        threadId,
+      ]);
+
+      for (const room of rooms) {
+        this.chatGateway.server.to(room).emit('message_deleted', socketPayload);
+      }
+
+      if (result.recipientId) {
+        this.chatGateway.server.to(`user_${result.recipientId}`).emit('message_deleted', socketPayload);
+      }
+      this.chatGateway.server.to(`user_${user.id}`).emit('message_deleted', socketPayload);
     }
 
     return {

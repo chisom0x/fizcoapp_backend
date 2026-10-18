@@ -1,7 +1,15 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsOptional, IsString } from 'class-validator';
 
 export class VerifyBusinessDto {
-  @IsNotEmpty()
+  @IsOptional()
   @IsString()
-  registrationNumber: string;
+  registrationNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  cacRegistrationNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  businessName?: string;
 }

@@ -35,8 +35,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
         }
       }
     } else if (exception instanceof Error) {
-      this.logger.error(`Unhandled error: ${exception.message}`, exception.stack);
-      message = exception.message;
+      if ((exception as any).code === 'LIMIT_FILE_SIZE') {
+        status = HttpStatus.PAYLOAD_TOO_LARGE;
+        message = 'Document file size exceeds the 10MB limit';
+      } else {
+        this.logger.error(`Unhandled error: ${exception.message}`, exception.stack);
+        message = exception.message;
+      }
     }
 
     response.status(status).json({

@@ -1,10 +1,11 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject, forwardRef, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { initializeApp, cert, App } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
 import * as fs from 'fs';
 import * as path from 'path';
 import { NotificationsRepository } from './notifications.repository';
+import { ChatGateway } from '../chat/chat.gateway';
 
 @Injectable()
 export class NotificationsService implements OnModuleInit {
@@ -14,6 +15,9 @@ export class NotificationsService implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly notificationsRepository: NotificationsRepository,
+    @Optional()
+    @Inject(forwardRef(() => ChatGateway))
+    private readonly chatGateway?: ChatGateway,
   ) {}
 
   onModuleInit() {
@@ -45,22 +49,67 @@ export class NotificationsService implements OnModuleInit {
     return this.notificationsRepository.saveFcmToken(userId, fcmToken);
   }
 
+  async updatePreferences(userId: string, enabled: boolean) {
+    return this.notificationsRepository.updateNotificationPreferences(userId, enabled);
+  }
+
+  async getPreferences(userId: string) {
+    return this.notificationsRepository.getUserNotificationSettings(userId);
+  }
+
   async sendPushNotification(
     fcmToken: string,
     title: string,
     body: string,
-    data?: Record<string, string>,
+    data?: Record<string, any>,
   ): Promise<boolean> {
     if (!this.firebaseApp || !fcmToken) return false;
 
     try {
+      // Ensure all data values are strictly strings for FCM compatibility
+      const sanitizedData: Record<string, string> = {};
+      if (data) {
+        for (const [key, val] of Object.entries(data)) {
+          if (val !== undefined && val !== null) {
+            sanitizedData[key] = typeof val === 'string' ? val : JSON.stringify(val);
+          }
+        }
+      }
+
       await getMessaging(this.firebaseApp).send({
         token: fcmToken,
         notification: {
           title,
           body,
         },
-        data: data || {},
+        data: sanitizedData,
+        android: {
+          priority: 'high',
+          notification: {
+            channelId: 'fizco_channel',
+            sound: 'default',
+            priority: 'high',
+            defaultSound: true,
+            defaultVibrateTimings: true,
+            clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+          },
+        },
+        apns: {
+          headers: {
+            'apns-priority': '10',
+          },
+          payload: {
+            aps: {
+              alert: {
+                title,
+                body,
+              },
+              sound: 'default',
+              badge: 1,
+              contentAvailable: true,
+            },
+          },
+        },
       });
       return true;
     } catch (error) {
@@ -73,7 +122,7 @@ export class NotificationsService implements OnModuleInit {
     userId: string,
     title: string,
     body: string,
-    data?: Record<string, string>,
+    data?: Record<string, any>,
   ) {
     // 1. Create in-app notification in DB
     const created = await this.notificationsRepository.create({
@@ -83,10 +132,28 @@ export class NotificationsService implements OnModuleInit {
       data,
     });
 
-    // 2. Dispatch FCM push notification if user has a registered token
-    const token = await this.notificationsRepository.getUserFcmToken(userId);
-    if (token) {
-      await this.sendPushNotification(token, title, body, data);
+    // 2. Dispatch FCM push notification if user has enabled notifications and has a registered token
+    const settings = await this.notificationsRepository.getUserNotificationSettings(userId);
+    if (settings.notificationsEnabled && settings.fcmToken) {
+      await this.sendPushNotification(settings.fcmToken, title, body, data);
+    }
+
+    // 3. Emit real-time notification to user's personal socket room
+    try {
+      if (this.chatGateway?.server) {
+        this.chatGateway.server.to(`user_${userId}`).emit('new_notification', {
+          id: created.id,
+          title,
+          body,
+          data,
+          createdAt: (created as any).createdAt || new Date().toISOString(),
+        });
+        if (data?.type === 'TEAM_INVITE_ACCEPTED') {
+          this.chatGateway.server.to(`user_${userId}`).emit('team_member_signed_up', data);
+        }
+      }
+    } catch (err) {
+      this.logger.debug(`Socket notification emit error: ${err}`);
     }
 
     return created;
@@ -101,21 +168,30 @@ export class NotificationsService implements OnModuleInit {
     brand: string,
     model: string,
     creatorId: string,
+    onNotify?: (userId: string, payload: any) => void,
+    keywords: string[] = [],
   ) {
     try {
       const matches = await this.notificationsRepository.findVendorsWithMatchingInventory(
         brand,
         model,
         creatorId,
+        keywords,
       );
 
       for (const item of matches) {
+        const payload = {
+          title: '🔥 New Request Matching Your Inventory!',
+          body: `A buyer just requested "${requestTitle}". You have this in stock—tap to respond!`,
+          data: { requestId, type: 'REQUEST_MATCH' },
+        };
         await this.notifyUser(
           item.userId,
-          '🔥 New Request Matching Your Inventory!',
-          `A buyer just requested "${requestTitle}". You have this in stock—tap to respond!`,
-          { requestId, type: 'REQUEST_MATCH' },
+          payload.title,
+          payload.body,
+          payload.data,
         );
+        onNotify?.(item.userId, payload);
       }
     } catch (error) {
       this.logger.error(
@@ -124,11 +200,15 @@ export class NotificationsService implements OnModuleInit {
     }
   }
 
-  async getUserNotifications(userId: string, page = 1, limit = 20) {
+  async getUserNotifications(userId: string, page = 1, limit = 50) {
     const skip = (page - 1) * limit;
-    const { items, total } = await this.notificationsRepository.findByUserId(userId, skip, limit);
+    const [{ items, total }, unreadCount] = await Promise.all([
+      this.notificationsRepository.findByUserId(userId, skip, limit),
+      this.notificationsRepository.countUnread(userId),
+    ]);
     return {
       data: items,
+      unreadCount,
       meta: {
         page,
         limit,
@@ -136,6 +216,10 @@ export class NotificationsService implements OnModuleInit {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  async getUnreadCount(userId: string) {
+    return this.notificationsRepository.countUnread(userId);
   }
 
   async markAsRead(id: string, userId: string) {

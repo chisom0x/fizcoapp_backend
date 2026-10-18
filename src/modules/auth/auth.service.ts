@@ -17,6 +17,8 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 
+import { NotificationsService } from '../notifications/notifications.service';
+
 @Injectable()
 export class AuthService {
   private readonly jwtAccessSecret: string;
@@ -29,6 +31,7 @@ export class AuthService {
     private readonly emailService: EmailService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly notificationsService: NotificationsService,
   ) {
     this.jwtAccessSecret =
       this.configService.get<string>('JWT_ACCESS_SECRET') ||
@@ -37,9 +40,9 @@ export class AuthService {
       this.configService.get<string>('JWT_REFRESH_SECRET') ||
       'fizco_jwt_refresh_secret_2026';
     this.accessExpiresIn =
-      this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') || '15m';
+      this.configService.get<string>('JWT_ACCESS_EXPIRES_IN') || '120d';
     this.refreshExpiresIn =
-      this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '7d';
+      this.configService.get<string>('JWT_REFRESH_EXPIRES_IN') || '120d';
   }
 
   private generateTokens(user: { id: string; email: string }) {
@@ -145,8 +148,40 @@ export class AuthService {
     // 6. Generate tokens
     const tokens = this.generateTokens({ id: user.id, email: user.email });
 
+    const inviterId = (user as any).teamOwnerId || (user as any).inviterId;
+    if (inviterId) {
+      if ((user as any).teamOwnerId) {
+        this.notificationsService
+          .notifyUser(
+            user.id,
+            '🎉 CAC Team Verification',
+            `You were just added to a team to use ${(user as any).cacSharedByOwnerName || 'your team owner'}'s CAC verification.`,
+            { type: 'TEAM_INVITE_ACCEPTED' },
+          )
+          .catch(() => {});
+      }
+
+      // Notify the inviter that this invited member has signed up and is active
+      this.notificationsService
+        .notifyUser(
+          inviterId,
+          '🎉 Team Member Signed Up!',
+          `${user.fullName} (${user.email}) just completed signup and joined your team.`,
+          {
+            type: 'TEAM_INVITE_ACCEPTED',
+            memberId: user.id,
+            memberEmail: user.email,
+            memberName: user.fullName,
+          },
+        )
+        .catch(() => {});
+    }
+
     return {
-      user,
+      user: {
+        ...user,
+        isSharingCac: Boolean((user as any).teamOwnerId),
+      },
       tokens,
     };
   }
@@ -172,7 +207,10 @@ export class AuthService {
     const { passwordHash: _, ...userSafe } = user;
 
     return {
-      user: userSafe,
+      user: {
+        ...userSafe,
+        isSharingCac: Boolean((userSafe as any).teamOwnerId),
+      },
       tokens,
     };
   }

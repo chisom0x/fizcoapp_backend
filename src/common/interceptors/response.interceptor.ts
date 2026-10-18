@@ -29,6 +29,7 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>
               success: true,
               message: res.message || 'Operation successful',
               data: res.data !== undefined ? res.data : undefined,
+              ...(res.unreadCount !== undefined ? { unreadCount: res.unreadCount } : {}),
               meta: res.meta !== undefined ? res.meta : undefined,
             };
           }

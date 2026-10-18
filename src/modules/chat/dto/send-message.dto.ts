@@ -20,4 +20,8 @@ export class SendMessageDto {
   @IsOptional()
   @IsString()
   replyToSenderName?: string;
+
+  @IsOptional()
+  @IsString()
+  replyToText?: string;
 }
