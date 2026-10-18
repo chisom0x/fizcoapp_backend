@@ -18,7 +18,8 @@ export class MediaController {
     const url = await this.mediaService.uploadFile(file);
     return {
       message: 'Image uploaded successfully',
-      data: { url },
+      data: { url, urls: [url] },
+      url,
     };
   }
 
