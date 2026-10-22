@@ -71,11 +71,19 @@ export class NotificationsRepository {
   }
 
   async saveFcmToken(userId: string, fcmToken: string) {
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: { fcmToken },
-      select: { id: true, fcmToken: true },
-    });
+    // A device belongs to whoever signed in on it last, so earlier accounts stop receiving its pushes
+    const [, user] = await this.prisma.$transaction([
+      this.prisma.user.updateMany({
+        where: { fcmToken, id: { not: userId } },
+        data: { fcmToken: null },
+      }),
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { fcmToken },
+        select: { id: true, fcmToken: true },
+      }),
+    ]);
+    return user;
   }
 
   async getUserFcmToken(userId: string): Promise<string | null> {
@@ -105,15 +113,27 @@ export class NotificationsRepository {
     });
   }
 
+  /**
+   * A vendor matches when one of their inventory items contains every keyword of at
+   * least one phrasing of the request, compared as whole tokens of the item's
+   * title, model and brand. Vendors in a block relationship with the requester are
+   * skipped, mirroring the open-requests feed.
+   */
   async findVendorsWithMatchingInventory(
     brand: string,
-    model: string,
     excludeUserId: string,
-    keywords: string[] = [],
+    keywordSets: string[][],
   ) {
+    const phrasings = keywordSets.filter((set) => set.length > 0);
+    if (phrasings.length === 0) return [];
+
     const items = await this.prisma.inventoryItem.findMany({
       where: {
         userId: { not: excludeUserId },
+        user: {
+          blocksReceived: { none: { userId: excludeUserId } },
+          blocksInitiated: { none: { vendorId: excludeUserId } },
+        },
       },
       select: {
         id: true,
@@ -133,42 +153,32 @@ export class NotificationsRepository {
 
     const matchingVendors = new Map<string, { userId: string; user: { id: string; fcmToken: string | null; fullName: string } }>();
     const targetBrand = (brand || '').toLowerCase().trim();
-    const cleanModel = (model || '').toLowerCase().trim();
+    const unknownBrands = new Set(['', 'other', 'unknown']);
 
     for (const item of items) {
       const itemTitle = (item.title || '').toLowerCase();
-      const itemBrand = (item.brand || '').toLowerCase();
-      const itemModel = (item.model || '').toLowerCase();
+      const itemBrand = (item.brand || '').toLowerCase().trim();
 
-      // 1. Brand match check
+      // 1. Brand gate: only applies when both sides have a known brand
       const brandMatches =
-        targetBrand === 'other' ||
-        targetBrand === '' ||
+        unknownBrands.has(targetBrand) ||
+        unknownBrands.has(itemBrand) ||
         itemBrand.includes(targetBrand) ||
         targetBrand.includes(itemBrand) ||
         itemTitle.includes(targetBrand);
 
       if (!brandMatches) continue;
 
-      // 2. Gadget name / model keywords check
-      let matchesGadget = false;
-
-      if (keywords.length > 0) {
-        // Count how many keywords appear in item title or model
-        const matchCount = keywords.filter(
-          (kw) => itemTitle.includes(kw) || itemModel.includes(kw),
-        ).length;
-        const required = Math.max(1, Math.min(2, Math.ceil(keywords.length * 0.4)));
-        matchesGadget = matchCount >= required;
-      }
-
-      if (!matchesGadget && cleanModel.length > 0) {
-        matchesGadget =
-          itemTitle.includes(cleanModel) ||
-          cleanModel.includes(itemTitle) ||
-          itemModel.includes(cleanModel) ||
-          cleanModel.includes(itemModel);
-      }
+      // 2. Gadget check: every keyword of some phrasing must be a whole token of the item
+      const itemTokens = new Set(
+        `${item.title} ${item.model ?? ''} ${item.brand ?? ''}`
+          .toLowerCase()
+          .split(/[^a-z0-9]+/)
+          .filter(Boolean),
+      );
+      const matchesGadget = phrasings.some((set) =>
+        set.every((kw) => itemTokens.has(kw)),
+      );
 
       if (matchesGadget) {
         matchingVendors.set(item.userId, {

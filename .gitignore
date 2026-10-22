@@ -16,3 +16,7 @@ lerna-debug.log*
 # Environment
 .env
 node_modules
+
+# Firebase Admin credentials (secret)
+firebase-service-account.json
+*-firebase-adminsdk-*.json

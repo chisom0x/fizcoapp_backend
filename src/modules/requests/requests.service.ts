@@ -58,7 +58,6 @@ export class RequestsService {
 
   private extractGadgetBrandAndKeywords(title: string): {
     brand: string;
-    model: string;
     keywords: string[];
   } {
     const cleanTitle = title.toLowerCase();
@@ -91,6 +90,13 @@ export class RequestsService {
       }
     }
 
+    return {
+      brand: detectedBrand,
+      keywords: this.toMatchKeywords(cleanTitle),
+    };
+  }
+
+  private toMatchKeywords(text: string): string[] {
     // Common noise words in user requests
     const noiseWords = new Set([
       'needed', 'need', 'needs', 'needing', 'urgently', 'urgent', 'looking', 'for', 'want', 'wanted',
@@ -103,25 +109,20 @@ export class RequestsService {
       'gb', 'tb', 'ram', 'rom', 'battery', 'health', 'bh',
     ]);
 
-    const rawTokens = cleanTitle
+    const rawTokens = text
+      .toLowerCase()
+      .replace(/\b\d+\s*(gb|tb|mb)\b/g, ' ')
       .replace(/[^a-z0-9\s]/g, ' ')
       .split(/\s+/)
       .filter(Boolean);
 
-    const keywords = rawTokens.filter((token) => {
+    return rawTokens.filter((token) => {
       if (noiseWords.has(token)) return false;
-      if (/^\d+(gb|tb|mb)$/i.test(token)) return false;
-      if (/^(16|32|64|128|256|512|1024)$/.test(token)) return false;
-      return token.length > 1;
+      // Bare storage sizes; 16 stays because it is also a model number (iPhone 16, MacBook Pro 16)
+      if (/^(32|64|128|256|512|1024)$/.test(token)) return false;
+      // Single digits are model numbers (Pixel 7, PlayStation 5); single letters are noise
+      return token.length > 1 || /^\d$/.test(token);
     });
-
-    const model = keywords.join(' ');
-
-    return {
-      brand: detectedBrand,
-      model: model.length > 0 ? model : title,
-      keywords,
-    };
   }
 
   private async matchAndNotifyVendors(
@@ -132,8 +133,8 @@ export class RequestsService {
     try {
       const localExtracted = this.extractGadgetBrandAndKeywords(title);
       let brand = localExtracted.brand;
-      let model = localExtracted.model;
-      const keywords = localExtracted.keywords;
+      // Alternative phrasings of the gadget; a vendor matches if any one is fully in stock
+      const keywordSets = [localExtracted.keywords];
 
       // Attempt AI enrichment if available, but never fail if unreachable
       try {
@@ -142,43 +143,24 @@ export class RequestsService {
           brand = parsed.brand;
         }
         if (parsed.model) {
-          model = parsed.model;
-          const aiTokens = parsed.model
-            .toLowerCase()
-            .replace(/[^a-z0-9\s]/g, ' ')
-            .split(/\s+/)
-            .filter((t) => t.length > 1);
-          for (const token of aiTokens) {
-            if (!keywords.includes(token)) keywords.push(token);
-          }
+          keywordSets.push(this.toMatchKeywords(parsed.model));
         }
       } catch {
         // AI service is optional; fallback to deterministic local heuristic
       }
 
+      // notifyUser already emits 'new_notification' to the vendor's room
       await this.notificationsService.notifyMatchingVendors(
         requestId,
         title,
         brand,
-        model,
         requesterId,
+        keywordSets,
         (vendorUserId, payload) => {
           this.chatGateway.server
             ?.to(`user_${vendorUserId}`)
-            .emit('new_notification', payload);
-          this.chatGateway.server
-            ?.to(`user_${vendorUserId}`)
             .emit('request_match', payload);
-          this.chatGateway.server?.emit('new_notification', {
-            ...payload,
-            recipientId: vendorUserId,
-          });
-          this.chatGateway.server?.emit('request_match', {
-            ...payload,
-            recipientId: vendorUserId,
-          });
         },
-        keywords,
       );
     } catch {
       // Background notifications don't interrupt request creation

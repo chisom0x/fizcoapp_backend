@@ -177,6 +177,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       if (participantStatus) {
         client.emit('thread_participant_status', participantStatus);
       }
+
+      // Automatically mark messages read upon joining thread
+      if (userId) {
+        await this.chatService.markRead(data.threadId, userId);
+      }
     }
   }
 
@@ -290,6 +295,36 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       isOnline,
       lastSeenAt: lastSeenAt ? (lastSeenAt instanceof Date ? lastSeenAt.toISOString() : String(lastSeenAt)) : null,
     });
+  }
+
+  @SubscribeMessage('mark_read')
+  async handleMarkRead(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { threadId: string },
+  ) {
+    const userId = client.data.userId;
+    if (!userId || !data?.threadId) return;
+    await this.chatService.markRead(data.threadId, userId);
+  }
+
+  broadcastMessagesRead(threadId: string, readerId: string) {
+    if (!this.server) return;
+    const cleanId = threadId.replace('chat_', '');
+    const socketPayload = {
+      event: 'messages_read',
+      threadId,
+      cleanThreadId: cleanId,
+      readerId,
+    };
+    const rooms = new Set([
+      `chat_${cleanId}`,
+      cleanId,
+      `chat_${threadId}`,
+      threadId,
+    ]);
+    for (const room of rooms) {
+      this.server.to(room).emit('messages_read', socketPayload);
+    }
   }
 
   @SubscribeMessage('delete_message')

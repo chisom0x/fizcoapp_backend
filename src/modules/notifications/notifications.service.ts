@@ -76,8 +76,9 @@ export class NotificationsService implements OnModuleInit {
         }
       }
 
+      // The app registers with FCM and stores its Firebase Installation ID (FID) as fcmToken
       await getMessaging(this.firebaseApp).send({
-        token: fcmToken,
+        fid: fcmToken,
         notification: {
           title,
           body,
@@ -166,17 +167,15 @@ export class NotificationsService implements OnModuleInit {
     requestId: string,
     requestTitle: string,
     brand: string,
-    model: string,
     creatorId: string,
+    keywordSets: string[][],
     onNotify?: (userId: string, payload: any) => void,
-    keywords: string[] = [],
   ) {
     try {
       const matches = await this.notificationsRepository.findVendorsWithMatchingInventory(
         brand,
-        model,
         creatorId,
-        keywords,
+        keywordSets,
       );
 
       for (const item of matches) {

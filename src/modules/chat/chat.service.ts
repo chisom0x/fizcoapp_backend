@@ -83,21 +83,37 @@ export class ChatService {
 
     // Auto mark read for current user
     await this.chatRepository.markMessagesRead(thread.id, userId);
+    if (this.chatGateway) {
+      this.chatGateway.broadcastMessagesRead(thread.id, userId);
+    }
 
-    return messages.map((m) => ({
-      id: m.id,
-      text: m.isDeleted ? 'This message was deleted' : m.text,
-      imageUrl: m.isDeleted ? null : m.imageUrl,
-      timestamp: m.createdAt,
-      isFromMe: m.senderId === userId,
-      isSystem: m.isSystem,
-      isDeleted: m.isDeleted,
-      taggedRequestId: m.taggedRequestId,
-      taggedRequest: m.taggedRequest,
-      replyToMessageId: m.replyToMessageId,
-      replyToSenderName: m.replyToSenderName,
-      replyToText: (m as any).replyToText || m.replyToMessage?.text || null,
-    }));
+    const otherParticipantId =
+      thread.creatorId === userId ? thread.vendorId : thread.creatorId;
+
+    return messages.map((m) => {
+      const isFromMe = m.senderId === userId;
+      const isRead = isFromMe
+        ? (Array.isArray(m.readBy) &&
+            (m.readBy.includes(otherParticipantId) ||
+              m.readBy.some((id: string) => id !== userId)))
+        : true;
+
+      return {
+        id: m.id,
+        text: m.isDeleted ? 'This message was deleted' : m.text,
+        imageUrl: m.isDeleted ? null : m.imageUrl,
+        timestamp: m.createdAt,
+        isFromMe,
+        isSystem: m.isSystem,
+        isDeleted: m.isDeleted,
+        taggedRequestId: m.taggedRequestId,
+        taggedRequest: m.taggedRequest,
+        replyToMessageId: m.replyToMessageId,
+        replyToSenderName: m.replyToSenderName,
+        replyToText: (m as any).replyToText || m.replyToMessage?.text || null,
+        isRead,
+      };
+    });
   }
 
   async sendMessage(
@@ -155,6 +171,12 @@ export class ChatService {
           senderName,
         })
         .catch(() => {});
+    } else {
+      // Recipient is already in thread viewing the conversation
+      await this.chatRepository.markMessagesRead(resolvedThreadId, recipientId);
+      if (this.chatGateway) {
+        this.chatGateway.broadcastMessagesRead(resolvedThreadId, recipientId);
+      }
     }
 
     return {
@@ -173,6 +195,7 @@ export class ChatService {
       replyToSenderName: message.replyToSenderName,
       replyToText: message.replyToText || dto.replyToText || null,
       recipientId,
+      isRead: isRecipientInThread,
     };
   }
 
@@ -194,6 +217,9 @@ export class ChatService {
 
   async markRead(threadId: string, userId: string) {
     const count = await this.chatRepository.markMessagesRead(threadId, userId);
+    if (this.chatGateway) {
+      this.chatGateway.broadcastMessagesRead(threadId, userId);
+    }
     return { count };
   }
 
