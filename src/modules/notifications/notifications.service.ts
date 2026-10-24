@@ -92,7 +92,8 @@ export class NotificationsService implements OnModuleInit {
             priority: 'high',
             defaultSound: true,
             defaultVibrateTimings: true,
-            clickAction: 'FLUTTER_NOTIFICATION_CLICK',
+            // No clickAction: Android then launches the app's main activity on tap, and
+            // firebase_messaging hands the message to onMessageOpenedApp / getInitialMessage
           },
         },
         apns: {

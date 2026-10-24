@@ -19,22 +19,6 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       return true;
     }
 
-    try {
-      const result = (await super.canActivate(context)) as boolean;
-      if (result) return true;
-    } catch (err) {
-      if (process.env.NODE_ENV !== 'production') {
-        const req = context.switchToHttp().getRequest();
-        // Development fallback: attach test user so AI engine runs reliably
-        req.user = {
-          id: '3f2ff3f4-ff70-4589-8b76-ef65f7817ff2',
-          email: 'soma@yopmail.com',
-        };
-        return true;
-      }
-      throw err;
-    }
-
-    return true;
+    return (await super.canActivate(context)) as boolean;
   }
 }
