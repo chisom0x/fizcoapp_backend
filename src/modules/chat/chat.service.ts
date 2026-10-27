@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
   Inject,
   forwardRef,
 } from '@nestjs/common';
@@ -10,6 +11,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { MessageType } from '@prisma/client';
 import { ChatGateway } from './chat.gateway';
+import { RequestsService } from '../requests/requests.service';
 
 @Injectable()
 export class ChatService {
@@ -19,6 +21,8 @@ export class ChatService {
     private readonly notificationsService: NotificationsService,
     @Inject(forwardRef(() => ChatGateway))
     private readonly chatGateway: ChatGateway,
+    @Inject(forwardRef(() => RequestsService))
+    private readonly requestsService: RequestsService,
   ) {}
 
   async getUserThreads(userId: string) {
@@ -142,6 +146,16 @@ export class ChatService {
     }
 
     const resolvedThreadId = thread.id;
+    const recipientId = thread.creatorId === senderId ? thread.vendorId : thread.creatorId;
+
+    // Tagging a request is how a vendor shows interest in it, so it's checked before the message
+    // is saved and recorded after, never on its own
+    const interestRequest = dto.taggedRequestId
+      ? await this.requestsService.assertCanShowInterest(dto.taggedRequestId, senderId)
+      : null;
+    if (interestRequest && interestRequest.requesterId !== recipientId) {
+      throw new BadRequestException('A request can only be tagged in a chat with its creator');
+    }
 
     let type: MessageType = MessageType.TEXT;
     if (dto.imageUrl) type = MessageType.IMAGE;
@@ -159,7 +173,14 @@ export class ChatService {
       replyToText: dto.replyToText,
     });
 
-    const recipientId = thread.creatorId === senderId ? thread.vendorId : thread.creatorId;
+    if (interestRequest) {
+      await this.requestsService.recordInterest(
+        interestRequest,
+        senderId,
+        senderName,
+        resolvedThreadId,
+      );
+    }
 
     // Check if recipient is actively on this chat thread screen right now
     const isRecipientInThread = this.chatGateway

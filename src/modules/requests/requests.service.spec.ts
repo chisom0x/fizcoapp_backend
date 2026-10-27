@@ -187,16 +187,15 @@ describe('RequestsService vendor matching', () => {
 
   it('sends the requester one in-app notification when a vendor shows interest', async () => {
     Object.assign(requestsRepository, {
-      getUserSubscriptionPlan: jest.fn().mockResolvedValue('Premium'),
-      countUserInterests: jest.fn().mockResolvedValue(0),
-      findById: jest
-        .fn()
-        .mockResolvedValue({ id: 'req_1', title: 'iPhone 13', requesterId: 'buyer_1' }),
-      addInterest: jest.fn().mockResolvedValue({}),
-      getOrCreateChatThread: jest.fn().mockResolvedValue({ id: 'thread_1' }),
+      addInterest: jest.fn().mockResolvedValue(true),
     });
 
-    await service.showInterest('req_1', 'vendor_1', 'Vendor One');
+    await service.recordInterest(
+      { id: 'req_1', title: 'iPhone 13', requesterId: 'buyer_1' },
+      'vendor_1',
+      'Vendor One',
+      'thread_1',
+    );
     await new Promise((resolve) => setImmediate(resolve));
 
     const notificationEmits = server.to.mock.calls.filter(
@@ -204,6 +203,23 @@ describe('RequestsService vendor matching', () => {
     );
     expect(notificationEmits).toEqual([['user_buyer_1']]);
     expect(prisma.notification.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not notify the requester again for a vendor already interested', async () => {
+    Object.assign(requestsRepository, {
+      addInterest: jest.fn().mockResolvedValue(false),
+    });
+
+    await service.recordInterest(
+      { id: 'req_1', title: 'iPhone 13', requesterId: 'buyer_1' },
+      'vendor_1',
+      'Vendor One',
+      'thread_1',
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(server.to).not.toHaveBeenCalled();
+    expect(prisma.notification.create).not.toHaveBeenCalled();
   });
 
   it('opens the chat without recording interest or notifying the requester', async () => {

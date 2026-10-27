@@ -5,11 +5,13 @@ import { ChatRepository } from './chat.repository';
 import { ChatController } from './chat.controller';
 import { ChatGateway } from './chat.gateway';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { RequestsModule } from '../requests/requests.module';
 
 @Module({
   imports: [
     JwtModule.register({}),
     forwardRef(() => NotificationsModule),
+    forwardRef(() => RequestsModule),
   ],
   controllers: [ChatController],
   providers: [ChatService, ChatRepository, ChatGateway],

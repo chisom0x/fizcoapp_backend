@@ -93,18 +93,16 @@ export class RequestsController {
     };
   }
 
+  // Older app builds call this before sending their first message about the request. Interest
+  // is now recorded when that message is saved, so this only checks the vendor may send it
   @Post(':id/interest')
   async showInterest(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    const result = await this.requestsService.showInterest(
-      id,
-      user.id,
-      user.fullName,
-    );
+    const result = await this.requestsService.openChat(id, user.id);
     return {
-      message: 'Interest recorded successfully',
+      message: 'Chat opened',
       data: result,
     };
   }

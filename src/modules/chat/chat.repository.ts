@@ -188,21 +188,6 @@ export class ChatRepository {
       if (request) {
         const vendorId = request.requesterId === currentUserId ? null : currentUserId;
         if (vendorId) {
-          // Register interest in DB
-          await this.prisma.requestInterest.upsert({
-            where: {
-              requestId_vendorId: {
-                requestId: request.id,
-                vendorId,
-              },
-            },
-            update: {},
-            create: {
-              requestId: request.id,
-              vendorId,
-            },
-          });
-
           // Check if a thread already exists between these two users!
           let thread = await this.prisma.chatThread.findFirst({
             where: {

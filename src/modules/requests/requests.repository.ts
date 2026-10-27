@@ -219,20 +219,13 @@ export class RequestsRepository {
     });
   }
 
-  async addInterest(requestId: string, vendorId: string) {
-    return this.prisma.requestInterest.upsert({
-      where: {
-        requestId_vendorId: {
-          requestId,
-          vendorId,
-        },
-      },
-      update: {},
-      create: {
-        requestId,
-        vendorId,
-      },
+  /** Whether the interest is new; an existing one is left as it was */
+  async addInterest(requestId: string, vendorId: string): Promise<boolean> {
+    const { count } = await this.prisma.requestInterest.createMany({
+      data: [{ requestId, vendorId }],
+      skipDuplicates: true,
     });
+    return count > 0;
   }
 
   async getOrCreateChatThread(requestId: string, creatorId: string, vendorId: string) {

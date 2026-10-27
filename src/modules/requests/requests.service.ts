@@ -4,6 +4,8 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { RequestsRepository } from './requests.repository';
 import { AiService } from '../ai/ai.service';
@@ -21,7 +23,10 @@ export class RequestsService {
   constructor(
     private readonly requestsRepository: RequestsRepository,
     private readonly aiService: AiService,
+    // Both import ChatService, which imports this file, so they're undefined while it loads
+    @Inject(forwardRef(() => NotificationsService))
     private readonly notificationsService: NotificationsService,
+    @Inject(forwardRef(() => ChatGateway))
     private readonly chatGateway: ChatGateway,
   ) {}
 
@@ -260,7 +265,7 @@ export class RequestsService {
   }
 
   // Opens the vendor's chat with the requester without recording interest or telling the
-  // requester anything; showInterest does both once the vendor sends a message
+  // requester anything; interest is recorded once the vendor sends a message tagging the request
   async openChat(requestId: string, vendorId: string) {
     const request = await this.assertCanShowInterest(requestId, vendorId);
     const chatThread = await this.requestsRepository.getOrCreateChatThread(
@@ -275,23 +280,26 @@ export class RequestsService {
     };
   }
 
-  async showInterest(requestId: string, vendorId: string, vendorName: string) {
-    const request = await this.assertCanShowInterest(requestId, vendorId);
+  // Called by ChatService once the vendor's message tagging the request is saved, so nobody is
+  // listed as interested without having messaged the requester. The requester is told only once
+  async recordInterest(
+    request: { id: string; title: string; requesterId: string },
+    vendorId: string,
+    vendorName: string,
+    chatThreadId: string,
+  ) {
+    const isNew = await this.requestsRepository.addInterest(request.id, vendorId);
+    if (!isNew) return;
 
-    const [, chatThread] = await Promise.all([
-      this.requestsRepository.addInterest(requestId, vendorId),
-      this.requestsRepository.getOrCreateChatThread(requestId, request.requesterId, vendorId),
-    ]);
-
-    // Notify requester via push notification and real-time socket
+    const requestId = request.id;
     this.chatGateway.server?.to(`user_${request.requesterId}`).emit('new_chat_thread', {
-      threadId: chatThread.id,
+      threadId: chatThreadId,
       requestId,
       vendorId,
       vendorName,
     });
     this.chatGateway.server?.to(`user_${request.requesterId}`).emit('vendor_interest', {
-      threadId: chatThread.id,
+      threadId: chatThreadId,
       requestId,
       vendorId,
       vendorName,
@@ -304,22 +312,16 @@ export class RequestsService {
         request.requesterId,
         '🤝 New Vendor Interest!',
         `${vendorName} is interested in supplying your request for "${request.title}".`,
-        { requestId, chatThreadId: chatThread.id, type: 'VENDOR_INTEREST' },
+        { requestId, chatThreadId, type: 'VENDOR_INTEREST' },
       )
       .catch((err) =>
         this.logger.error(
           `Failed to notify requester of interest in ${requestId}: ${err instanceof Error ? err.message : String(err)}`,
         ),
       );
-
-    return {
-      chatThreadId: chatThread.id,
-      requestId,
-      vendorId,
-    };
   }
 
-  private async assertCanShowInterest(requestId: string, vendorId: string) {
+  async assertCanShowInterest(requestId: string, vendorId: string) {
     // The vendor is waiting on this to open the chat, so independent lookups run together
     const [vendorPlan, interestsCount, request] = await Promise.all([
       this.requestsRepository.getUserSubscriptionPlan(vendorId),
