@@ -138,6 +138,7 @@ export class NotificationsRepository {
       select: {
         id: true,
         title: true,
+        rawInput: true,
         brand: true,
         model: true,
         userId: true,
@@ -156,7 +157,9 @@ export class NotificationsRepository {
     const unknownBrands = new Set(['', 'other', 'unknown']);
 
     for (const item of items) {
-      const itemTitle = (item.title || '').toLowerCase();
+      // The AI rewrites titles ("MTN WiFi 4G" -> "MTN 4G Wi-Fi Router"), so the vendor's own
+      // words count as much as the parsed fields
+      const itemText = `${item.title} ${item.rawInput} ${item.model ?? ''} ${item.brand ?? ''}`.toLowerCase();
       const itemBrand = (item.brand || '').toLowerCase().trim();
 
       // 1. Brand gate: only applies when both sides have a known brand
@@ -165,17 +168,15 @@ export class NotificationsRepository {
         unknownBrands.has(itemBrand) ||
         itemBrand.includes(targetBrand) ||
         targetBrand.includes(itemBrand) ||
-        itemTitle.includes(targetBrand);
+        itemText.includes(targetBrand);
 
       if (!brandMatches) continue;
 
       // 2. Gadget check: every keyword of some phrasing must be a whole token of the item
-      const itemTokens = new Set(
-        `${item.title} ${item.model ?? ''} ${item.brand ?? ''}`
-          .toLowerCase()
-          .split(/[^a-z0-9]+/)
-          .filter(Boolean),
-      );
+      // Adjacent pairs are joined too, so "Wi-Fi" / "Wi Fi" also yield "wifi" and "PS 5" yields "ps5"
+      const words = itemText.split(/[^a-z0-9]+/).filter(Boolean);
+      const itemTokens = new Set(words);
+      for (let i = 1; i < words.length; i++) itemTokens.add(words[i - 1] + words[i]);
       const matchesGadget = phrasings.some((set) =>
         set.every((kw) => itemTokens.has(kw)),
       );

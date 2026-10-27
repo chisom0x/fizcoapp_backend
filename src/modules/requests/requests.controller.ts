@@ -81,6 +81,18 @@ export class RequestsController {
     };
   }
 
+  @Post(':id/chat')
+  async openChat(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    const result = await this.requestsService.openChat(id, user.id);
+    return {
+      message: 'Chat opened',
+      data: result,
+    };
+  }
+
   @Post(':id/interest')
   async showInterest(
     @CurrentUser() user: AuthenticatedUser,

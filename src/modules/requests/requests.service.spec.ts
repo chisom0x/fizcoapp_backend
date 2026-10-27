@@ -65,8 +65,17 @@ const inventory = [
     model: 'PlayStation 4 Slim',
   },
   { userId: 'v_legacy', title: 'Tecno Camon 20', brand: null, model: null },
+  // The AI rewrote the vendor's "MTN WiFi 4G" into its own spelling
+  {
+    userId: 'v_mtn_wifi',
+    title: 'MTN 4G Wi-Fi Router',
+    brand: 'MTN',
+    model: '4G Router',
+    rawInput: 'MTN WiFi 4G hotspot',
+  },
 ].map((item, i) => ({
   id: `item_${i}`,
+  rawInput: item.title,
   ...item,
   user: { id: item.userId, fcmToken: null, fullName: item.userId },
 }));
@@ -77,6 +86,7 @@ describe('RequestsService vendor matching', () => {
   let aiService: { parseProductInput: jest.Mock };
   let roomEmit: jest.Mock;
   let server: { emit: jest.Mock; to: jest.Mock };
+  let requestsRepository: Record<string, jest.Mock>;
 
   beforeEach(async () => {
     prisma = {
@@ -100,6 +110,7 @@ describe('RequestsService vendor matching', () => {
     aiService = {
       parseProductInput: jest.fn().mockRejectedValue(new Error('offline')),
     };
+    requestsRepository = {};
     roomEmit = jest.fn();
     server = {
       emit: jest.fn(),
@@ -113,7 +124,7 @@ describe('RequestsService vendor matching', () => {
         NotificationsRepository,
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: { get: jest.fn() } },
-        { provide: RequestsRepository, useValue: {} },
+        { provide: RequestsRepository, useValue: requestsRepository },
         { provide: AiService, useValue: aiService },
         { provide: ChatGateway, useValue: { server } },
       ],
@@ -138,6 +149,9 @@ describe('RequestsService vendor matching', () => {
     ['Galaxy A13', ['v_a13']],
     ['Tecno Camon 20', ['v_legacy']],
     ['JBL speaker', []],
+    ['Mtn WiFi needed', ['v_mtn_wifi']],
+    ['MTN wi-fi router', ['v_mtn_wifi']],
+    ['Nintendo Switch', []],
   ])('"%s" notifies only vendors stocking it', async (title, expected) => {
     expect(await notifiedFor(title)).toEqual(expected);
   });
@@ -150,12 +164,67 @@ describe('RequestsService vendor matching', () => {
     expect(await notifiedFor('PS5 needed')).toEqual(['v_ps5']);
   });
 
+  it('matches on what the vendor typed even when the AI renames the item', async () => {
+    aiService.parseProductInput.mockResolvedValue({
+      brand: 'MTN',
+      model: 'MiFi',
+    });
+    expect(await notifiedFor('Mtn WiFi needed')).toEqual(['v_mtn_wifi']);
+  });
+
+  it('does not read brands out of longer words', async () => {
+    // "hot" (Infinix) inside "hotspot" must not gate out the MTN vendor
+    expect(await notifiedFor('MTN hotspot')).toEqual(['v_mtn_wifi']);
+  });
+
   it('skips vendors in a block relationship with the requester', async () => {
     await notifiedFor('iPhone 13');
     expect(prisma.inventoryItem.findMany.mock.calls[0][0].where.user).toEqual({
       blocksReceived: { none: { userId: 'buyer_1' } },
       blocksInitiated: { none: { vendorId: 'buyer_1' } },
     });
+  });
+
+  it('sends the requester one in-app notification when a vendor shows interest', async () => {
+    Object.assign(requestsRepository, {
+      getUserSubscriptionPlan: jest.fn().mockResolvedValue('Premium'),
+      countUserInterests: jest.fn().mockResolvedValue(0),
+      findById: jest
+        .fn()
+        .mockResolvedValue({ id: 'req_1', title: 'iPhone 13', requesterId: 'buyer_1' }),
+      addInterest: jest.fn().mockResolvedValue({}),
+      getOrCreateChatThread: jest.fn().mockResolvedValue({ id: 'thread_1' }),
+    });
+
+    await service.showInterest('req_1', 'vendor_1', 'Vendor One');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const notificationEmits = server.to.mock.calls.filter(
+      (_, i) => roomEmit.mock.calls[i]?.[0] === 'new_notification',
+    );
+    expect(notificationEmits).toEqual([['user_buyer_1']]);
+    expect(prisma.notification.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the chat without recording interest or notifying the requester', async () => {
+    const addInterest = jest.fn();
+    Object.assign(requestsRepository, {
+      getUserSubscriptionPlan: jest.fn().mockResolvedValue('Premium'),
+      countUserInterests: jest.fn().mockResolvedValue(0),
+      findById: jest
+        .fn()
+        .mockResolvedValue({ id: 'req_1', title: 'iPhone 13', requesterId: 'buyer_1' }),
+      addInterest,
+      getOrCreateChatThread: jest.fn().mockResolvedValue({ id: 'thread_1' }),
+    });
+
+    const result = await service.openChat('req_1', 'vendor_1');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(result.chatThreadId).toBe('thread_1');
+    expect(addInterest).not.toHaveBeenCalled();
+    expect(server.to).not.toHaveBeenCalled();
+    expect(prisma.notification.create).not.toHaveBeenCalled();
   });
 
   it('emits match events only to the matched vendor room, never globally', async () => {

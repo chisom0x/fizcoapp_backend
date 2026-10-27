@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MessageType } from '@prisma/client';
 
@@ -232,11 +232,13 @@ export class ChatRepository {
     return null;
   }
 
-  async findMessagesByThread(threadId: string, skip = 0, take = 100) {
+  /** The newest `take` messages, or those just older than message `before`, oldest first */
+  async findMessagesByThread(threadId: string, take = 50, before?: string) {
     const messages = await this.prisma.message.findMany({
       where: { threadId },
-      orderBy: { createdAt: 'desc' },
-      skip,
+      // id breaks createdAt ties so the cursor walks a stable order
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      ...(before ? { cursor: { id: before }, skip: 1 } : {}),
       take,
       select: {
         id: true,
@@ -357,6 +359,10 @@ export class ChatRepository {
     if (!msg) {
       return null;
     }
+    // Covers both the REST and socket delete paths, which share this method
+    if (msg.senderId !== senderId) {
+      throw new ForbiddenException('You can only delete messages you sent');
+    }
 
     const updated = await this.prisma.message.update({
       where: { id: messageId },
@@ -397,26 +403,21 @@ export class ChatRepository {
   }
 
   async markMessagesRead(threadId: string, userId: string) {
-    const unread = await this.prisma.message.findMany({
+    // One statement however long the history is: opening a chat waits on this, and the
+    // row-level WHERE recheck keeps concurrent calls from pushing the same id twice
+    const { count } = await this.prisma.message.updateMany({
       where: {
         threadId,
         NOT: {
           readBy: { has: userId },
         },
       },
-      select: { id: true, readBy: true },
+      data: {
+        readBy: { push: userId },
+      },
     });
 
-    for (const msg of unread) {
-      await this.prisma.message.update({
-        where: { id: msg.id },
-        data: {
-          readBy: { push: userId },
-        },
-      });
-    }
-
-    return unread.length;
+    return count;
   }
 
   async updateUserLastSeen(userId: string, date: Date) {

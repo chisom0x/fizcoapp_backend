@@ -29,6 +29,10 @@ export class ChatService {
 
     for (const t of rawThreads) {
       const isCreator = t.creatorId === userId;
+      // A vendor who opened the chat but never sent anything hasn't reached the requester yet
+      if (isCreator && !t.lastMessageAt) {
+        continue;
+      }
       const participant = isCreator ? t.vendor : t.creator;
       if (seenParticipants.has(participant.id)) {
         continue;
@@ -65,7 +69,7 @@ export class ChatService {
     return uniqueThreads;
   }
 
-  async getThreadMessages(threadId: string, userId: string, skip = 0, take = 50) {
+  async getThreadMessages(threadId: string, userId: string, take = 50, before?: string) {
     const thread = await this.chatRepository.findThreadByIdOrContext(threadId, userId);
     if (!thread) {
       throw new NotFoundException('Chat thread not found');
@@ -77,14 +81,16 @@ export class ChatService {
 
     const messages = await this.chatRepository.findMessagesByThread(
       thread.id,
-      skip,
       take,
+      before,
     );
 
-    // Auto mark read for current user
-    await this.chatRepository.markMessagesRead(thread.id, userId);
-    if (this.chatGateway) {
-      this.chatGateway.broadcastMessagesRead(thread.id, userId);
+    // Auto mark read for current user; older pages hold nothing new to mark
+    if (!before) {
+      await this.chatRepository.markMessagesRead(thread.id, userId);
+      if (this.chatGateway) {
+        this.chatGateway.broadcastMessagesRead(thread.id, userId);
+      }
     }
 
     const otherParticipantId =

@@ -13,7 +13,7 @@ import { ChatService } from './chat.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
-import { PaginationQueryDto } from '../../common/dto/pagination.dto';
+import { ThreadMessagesQueryDto } from './dto/thread-messages-query.dto';
 
 import { ChatGateway } from './chat.gateway';
 
@@ -38,17 +38,13 @@ export class ChatController {
   async getMessages(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id') threadId: string,
-    @Query() query: PaginationQueryDto,
+    @Query() query: ThreadMessagesQueryDto,
   ) {
-    const page = query.page || 1;
-    const limit = query.limit && query.limit !== 10 ? query.limit : 100;
-    const skip = (page - 1) * limit;
-
     const messages = await this.chatService.getThreadMessages(
       threadId,
       user.id,
-      skip,
-      limit,
+      query.limit,
+      query.before,
     );
 
     return {

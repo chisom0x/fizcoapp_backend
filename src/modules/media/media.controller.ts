@@ -1,16 +1,28 @@
 import {
   Controller,
+  Get,
   Post,
+  UseGuards,
   UploadedFile,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import { MediaService } from './media.service';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
+@UseGuards(JwtAuthGuard)
 @Controller('media')
 export class MediaController {
   constructor(private readonly mediaService: MediaService) {}
+
+  @Get('upload-signature')
+  getUploadSignature() {
+    return {
+      message: 'Upload signature created',
+      data: this.mediaService.createUploadSignature(),
+    };
+  }
 
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))

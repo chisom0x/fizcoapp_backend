@@ -270,12 +270,6 @@ export class UsersService {
           cacSharedByBusinessName: inviter.businessName,
           cacRegistrationNumber: inviter.cacRegistrationNumber,
         });
-
-        this.chatGateway.server?.to(`user_${invitee.id}`).emit('new_notification', {
-          title: '🎉 CAC Team Verification',
-          body: notifBody,
-          data: { type: 'TEAM_INVITE_ACCEPTED', inviterId: inviter.id },
-        });
       }
     }
 
@@ -310,12 +304,6 @@ export class UsersService {
         userId: member.id,
         isVerified: false,
         isSharingCac: false,
-      });
-
-      this.chatGateway.server?.to(`user_${member.id}`).emit('new_notification', {
-        title: 'Team Update',
-        body: notifBody,
-        data: { type: 'TEAM_MEMBER_REMOVED', inviterId: userId },
       });
     }
 

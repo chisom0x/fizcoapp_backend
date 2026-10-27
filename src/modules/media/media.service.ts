@@ -19,6 +19,26 @@ export class MediaService {
   }
 
   /**
+   * Signs a direct upload from the app to Cloudinary, so image bytes skip this server. The
+   * signature covers the folder and formats, so it can't be reused to upload anything else,
+   * and Cloudinary rejects it an hour after the timestamp
+   */
+  createUploadSignature(folder = 'fizco/uploads') {
+    const { cloud_name, api_key, api_secret } = cloudinary.config();
+    const params = {
+      timestamp: Math.round(Date.now() / 1000),
+      folder,
+      allowed_formats: 'jpg,jpeg,png,webp,heic',
+    };
+    return {
+      cloudName: cloud_name,
+      apiKey: api_key,
+      ...params,
+      signature: cloudinary.utils.api_sign_request(params, api_secret as string),
+    };
+  }
+
+  /**
    * Upload single buffer file to Cloudinary
    */
   async uploadFile(

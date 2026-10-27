@@ -60,12 +60,14 @@ Return ONLY a valid JSON object (with no markdown, no backticks, no code fence) 
   "brand": "string (e.g. Apple, Samsung, Google, Sony, Dell, HP, etc.)",
   "model": "string (e.g. iPhone 12 Pro Max, Galaxy S23 Ultra, MacBook Pro 14 M2, etc.)",
   "title": "string (The extracted gadget title, formatted cleanly e.g. 'iPhone 12 Pro Max' or 'Samsung Galaxy S23 Ultra')",
-  "description": "string (A clean, elegant summary of all the other information mentioned like storage, condition, accessories, color, battery health, e.g. '256GB, Graphite, UK Used, 88% battery health')",
+  "description": "string (A clean, elegant summary of all the other information mentioned like storage, condition, accessories, color, battery health, e.g. '256GB, Graphite, UK Used, 88% battery health'. Use an empty string when the input mentions nothing beyond the gadget itself)",
   "storage": "string or null (e.g. '256GB', '512GB', '16GB RAM / 512GB SSD')",
   "condition": "string or null (e.g. 'Brand New Sealed', 'Clean UK Used', 'Open Box', 'Fair')",
   "color": "string or null (e.g. 'Pacific Blue', 'Titanium Black', 'Space Grey')",
   "others": "string or null (Any extra notes like warranty, carrier lock, battery percentage, accessories)"
 }
+
+Only use details the seller actually wrote. Never fill a field with placeholder text such as "No additional details provided", "N/A" or "Not specified"; use an empty string or null instead.
 `;
 
       const response = await axios.post(
@@ -105,13 +107,13 @@ Return ONLY a valid JSON object (with no markdown, no backticks, no code fence) 
 
         return {
           title: parsed.title || `${parsed.brand || ''} ${parsed.model || ''}`.trim() || trimmed,
-          description: parsed.description || 'In stock',
+          description: this.withoutFiller(parsed.description) || 'In stock',
           brand: parsed.brand || 'Unknown',
           model: parsed.model || parsed.title || trimmed,
           storage: parsed.storage || undefined,
           condition: parsed.condition || undefined,
           color: parsed.color || undefined,
-          others: parsed.others || undefined,
+          others: this.withoutFiller(parsed.others) || undefined,
         };
       }
     } catch (error) {
@@ -123,6 +125,17 @@ Return ONLY a valid JSON object (with no markdown, no backticks, no code fence) 
 
     // Heuristic fallback
     return this.fallbackParse(trimmed);
+  }
+
+  /**
+   * The model sometimes fills empty fields with placeholder text despite the prompt; treat those as empty
+   */
+  private withoutFiller(value: unknown): string {
+    if (typeof value !== 'string') return '';
+    const text = value.trim();
+    const filler =
+      /^(n\/?a|none|null|unknown|-+|no (additional |other |extra |further )?(details|info|information|notes|description)( (were |was )?(provided|given|mentioned|specified|available))?|not (provided|specified|mentioned|available))\.?$/i;
+    return filler.test(text) ? '' : text;
   }
 
   /**

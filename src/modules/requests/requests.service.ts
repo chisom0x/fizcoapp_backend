@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   ForbiddenException,
@@ -15,6 +16,8 @@ import { ChatGateway } from '../chat/chat.gateway';
 
 @Injectable()
 export class RequestsService {
+  private readonly logger = new Logger(RequestsService.name);
+
   constructor(
     private readonly requestsRepository: RequestsRepository,
     private readonly aiService: AiService,
@@ -82,9 +85,13 @@ export class RequestsService {
       Nintendo: ['nintendo', 'switch'],
     };
 
+    // Triggers must stand alone as words ("hot" is Infinix, "hotspot" is not); digits may touch
+    // them so "iphone13" and "ps5" still count
+    const hasWord = (t: string) => new RegExp(`(?<![a-z])${t}(?![a-z])`).test(cleanTitle);
+
     let detectedBrand = 'Other';
     for (const [brand, triggers] of Object.entries(brandMap)) {
-      if (triggers.some((t) => cleanTitle.includes(t))) {
+      if (triggers.some(hasWord)) {
         detectedBrand = brand;
         break;
       }
@@ -112,6 +119,8 @@ export class RequestsService {
     const rawTokens = text
       .toLowerCase()
       .replace(/\b\d+\s*(gb|tb|mb)\b/g, ' ')
+      // "Wi-Fi" is one word; inventory tokens carry the joined form too
+      .replace(/([a-z0-9])-(?=[a-z0-9])/g, '$1')
       .replace(/[^a-z0-9\s]/g, ' ')
       .split(/\s+/)
       .filter(Boolean);
@@ -250,33 +259,29 @@ export class RequestsService {
     };
   }
 
-  async showInterest(requestId: string, vendorId: string, vendorName: string) {
-    const vendorPlan = await this.requestsRepository.getUserSubscriptionPlan(vendorId);
-    const isPremium = vendorPlan.toLowerCase() === 'premium';
-    if (!isPremium) {
-      const interestsCount = await this.requestsRepository.countUserInterests(vendorId);
-      if (interestsCount >= 1) {
-        throw new ForbiddenException(
-          'You have reached your 1 free request interest limit. Upgrade to Fizco Premium to show interest in unlimited requests.',
-        );
-      }
-    }
-
-    const request = await this.requestsRepository.findById(requestId);
-    if (!request) {
-      throw new NotFoundException('Request not found');
-    }
-
-    if (request.requesterId === vendorId) {
-      throw new BadRequestException('You cannot show interest in your own request');
-    }
-
-    await this.requestsRepository.addInterest(requestId, vendorId);
+  // Opens the vendor's chat with the requester without recording interest or telling the
+  // requester anything; showInterest does both once the vendor sends a message
+  async openChat(requestId: string, vendorId: string) {
+    const request = await this.assertCanShowInterest(requestId, vendorId);
     const chatThread = await this.requestsRepository.getOrCreateChatThread(
       requestId,
       request.requesterId,
       vendorId,
     );
+    return {
+      chatThreadId: chatThread.id,
+      requestId,
+      vendorId,
+    };
+  }
+
+  async showInterest(requestId: string, vendorId: string, vendorName: string) {
+    const request = await this.assertCanShowInterest(requestId, vendorId);
+
+    const [, chatThread] = await Promise.all([
+      this.requestsRepository.addInterest(requestId, vendorId),
+      this.requestsRepository.getOrCreateChatThread(requestId, request.requesterId, vendorId),
+    ]);
 
     // Notify requester via push notification and real-time socket
     this.chatGateway.server?.to(`user_${request.requesterId}`).emit('new_chat_thread', {
@@ -291,24 +296,52 @@ export class RequestsService {
       vendorId,
       vendorName,
     });
-    this.chatGateway.server?.to(`user_${request.requesterId}`).emit('new_notification', {
-      title: '🤝 New Vendor Interest!',
-      body: `${vendorName} is interested in supplying your request for "${request.title}".`,
-      data: { requestId, chatThreadId: chatThread.id, type: 'VENDOR_INTEREST' },
-    });
 
-    await this.notificationsService.notifyUser(
-      request.requesterId,
-      '🤝 New Vendor Interest!',
-      `${vendorName} is interested in supplying your request for "${request.title}".`,
-      { requestId, chatThreadId: chatThread.id, type: 'VENDOR_INTEREST' },
-    );
+    // notifyUser stores the notification and emits 'new_notification'; the push round-trip to
+    // FCM shouldn't hold up the vendor's message
+    this.notificationsService
+      .notifyUser(
+        request.requesterId,
+        '🤝 New Vendor Interest!',
+        `${vendorName} is interested in supplying your request for "${request.title}".`,
+        { requestId, chatThreadId: chatThread.id, type: 'VENDOR_INTEREST' },
+      )
+      .catch((err) =>
+        this.logger.error(
+          `Failed to notify requester of interest in ${requestId}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
 
     return {
       chatThreadId: chatThread.id,
       requestId,
       vendorId,
     };
+  }
+
+  private async assertCanShowInterest(requestId: string, vendorId: string) {
+    // The vendor is waiting on this to open the chat, so independent lookups run together
+    const [vendorPlan, interestsCount, request] = await Promise.all([
+      this.requestsRepository.getUserSubscriptionPlan(vendorId),
+      this.requestsRepository.countUserInterests(vendorId),
+      this.requestsRepository.findById(requestId),
+    ]);
+    const isPremium = vendorPlan.toLowerCase() === 'premium';
+    if (!isPremium && interestsCount >= 1) {
+      throw new ForbiddenException(
+        'You have reached your 1 free request interest limit. Upgrade to Fizco Premium to show interest in unlimited requests.',
+      );
+    }
+
+    if (!request) {
+      throw new NotFoundException('Request not found');
+    }
+
+    if (request.requesterId === vendorId) {
+      throw new BadRequestException('You cannot show interest in your own request');
+    }
+
+    return request;
   }
 
   async fulfill(requestId: string, requesterId: string, dto: FulfillRequestDto) {

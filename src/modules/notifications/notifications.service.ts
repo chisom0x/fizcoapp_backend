@@ -179,20 +179,27 @@ export class NotificationsService implements OnModuleInit {
         keywordSets,
       );
 
-      for (const item of matches) {
-        const payload = {
-          title: '🔥 New Request Matching Your Inventory!',
-          body: `A buyer just requested "${requestTitle}". You have this in stock—tap to respond!`,
-          data: { requestId, type: 'REQUEST_MATCH' },
-        };
-        await this.notifyUser(
-          item.userId,
-          payload.title,
-          payload.body,
-          payload.data,
-        );
-        onNotify?.(item.userId, payload);
-      }
+      this.logger.log(`Request ${requestId} ("${requestTitle}") matched ${matches.length} vendor(s)`);
+
+      const payload = {
+        title: '🔥 New Request Matching Your Inventory!',
+        body: `A buyer just requested "${requestTitle}". You have this in stock—tap to respond!`,
+        data: { requestId, type: 'REQUEST_MATCH' },
+      };
+      // One vendor's failed delivery must not stop the others from hearing about the request
+      const results = await Promise.allSettled(
+        matches.map(async (item) => {
+          await this.notifyUser(item.userId, payload.title, payload.body, payload.data);
+          onNotify?.(item.userId, payload);
+        }),
+      );
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          this.logger.error(
+            `Failed to notify vendor ${matches[i].userId} of request ${requestId}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`,
+          );
+        }
+      });
     } catch (error) {
       this.logger.error(
         `Failed to notify matching vendors for request ${requestId}: ${error instanceof Error ? error.message : String(error)}`,
