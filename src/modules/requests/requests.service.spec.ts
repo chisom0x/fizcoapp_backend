@@ -7,6 +7,7 @@ import { ChatGateway } from '../chat/chat.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationsRepository } from '../notifications/notifications.repository';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ChatRepository } from '../chat/chat.repository';
 
 // Inventory as InventoryService stores it after AI parsing, one item per vendor
 const inventory = [
@@ -73,12 +74,23 @@ const inventory = [
     model: '4G Router',
     rawInput: 'MTN WiFi 4G hotspot',
   },
-].map((item, i) => ({
-  id: `item_${i}`,
-  rawInput: item.title,
-  ...item,
-  user: { id: item.userId, fcmToken: null, fullName: item.userId },
-}));
+].map((item, i) => stocked(`item_${i}`, item));
+
+function stocked(
+  id: string,
+  item: { userId: string; title: string; brand: string | null; model: string | null; rawInput?: string },
+  { price = null, plan = 'Free' }: { price?: number | null; plan?: string } = {},
+) {
+  return {
+    id,
+    rawInput: item.title,
+    description: '',
+    imageUrls: [],
+    price,
+    ...item,
+    user: { id: item.userId, fcmToken: null, fullName: item.userId, subscriptionPlan: plan },
+  };
+}
 
 describe('RequestsService vendor matching', () => {
   let service: RequestsService;
@@ -87,6 +99,7 @@ describe('RequestsService vendor matching', () => {
   let roomEmit: jest.Mock;
   let server: { emit: jest.Mock; to: jest.Mock };
   let requestsRepository: Record<string, jest.Mock>;
+  let chatRepository: { createMessage: jest.Mock };
 
   beforeEach(async () => {
     prisma = {
@@ -111,6 +124,7 @@ describe('RequestsService vendor matching', () => {
       parseProductInput: jest.fn().mockRejectedValue(new Error('offline')),
     };
     requestsRepository = {};
+    chatRepository = { createMessage: jest.fn().mockResolvedValue({}) };
     roomEmit = jest.fn();
     server = {
       emit: jest.fn(),
@@ -125,6 +139,7 @@ describe('RequestsService vendor matching', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: RequestsRepository, useValue: requestsRepository },
+        { provide: ChatRepository, useValue: chatRepository },
         { provide: AiService, useValue: aiService },
         { provide: ChatGateway, useValue: { server } },
       ],
@@ -254,5 +269,88 @@ describe('RequestsService vendor matching', () => {
       'new_notification',
       'request_match',
     ]);
+  });
+
+  describe('offers from the cheapest Premium vendors', () => {
+    const iphone13 = (userId: string, price: number | null, plan = 'Premium') =>
+      stocked(
+        `item_${userId}`,
+        { userId, title: 'iPhone 13', brand: 'Apple', model: 'iPhone 13' },
+        { price, plan },
+      );
+
+    beforeEach(() => {
+      Object.assign(requestsRepository, {
+        getOrCreateChatThread: jest.fn(async (_req, _creator, vendorId) => ({
+          id: `thread_${vendorId}`,
+        })),
+        addInterest: jest.fn().mockResolvedValue(true),
+      });
+    });
+
+    const notificationsByType = () => {
+      const byType: Record<string, string[]> = {};
+      for (const [{ data }] of prisma.notification.create.mock.calls) {
+        (byType[data.data.type] ??= []).push(data.userId);
+      }
+      for (const ids of Object.values(byType)) ids.sort();
+      return byType;
+    };
+
+    it('sends the 10 cheapest priced Premium matches into chats and tells the rest', async () => {
+      const premium = Array.from({ length: 12 }, (_, i) =>
+        iphone13(`p${String(i).padStart(2, '0')}`, 400_000 + i * 10_000),
+      );
+      prisma.inventoryItem.findMany.mockResolvedValue([
+        ...premium.reverse(),
+        iphone13('free_cheapest', 100_000, 'Free'),
+        iphone13('premium_unpriced', null),
+      ]);
+
+      await notifiedFor('iPhone 13 needed');
+
+      const offeredBy = chatRepository.createMessage.mock.calls.map(([m]) => m.senderId);
+      expect(offeredBy).toEqual(
+        Array.from({ length: 10 }, (_, i) => `p${String(i).padStart(2, '0')}`),
+      );
+      expect(chatRepository.createMessage).toHaveBeenCalledWith({
+        threadId: 'thread_p00',
+        senderId: 'p00',
+        text: 'iPhone 13 · ₦400,000',
+        type: 'INVENTORY_ATTACHMENT',
+        taggedRequestId: 'req_1',
+        inventoryItem: expect.objectContaining({ id: 'item_p00', price: 400_000 }),
+      });
+      expect(requestsRepository.addInterest.mock.calls.map(([, v]) => v)).toEqual(offeredBy);
+
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(notificationsByType()).toEqual({
+        OFFER_SENT: [...offeredBy].sort(),
+        REQUEST_MATCH: ['free_cheapest', 'p10', 'p11', 'premium_unpriced'],
+        VENDOR_OFFERS: ['buyer_1'],
+      });
+    });
+
+    it('offers each vendor\'s cheapest matching item once', async () => {
+      prisma.inventoryItem.findMany.mockResolvedValue([
+        { ...iphone13('v1', 520_000), id: 'dear' },
+        { ...iphone13('v1', 450_000), id: 'cheap' },
+      ]);
+
+      await notifiedFor('iPhone 13');
+
+      expect(chatRepository.createMessage).toHaveBeenCalledTimes(1);
+      expect(chatRepository.createMessage.mock.calls[0][0].inventoryItem.id).toBe('cheap');
+    });
+
+    it('still tells a vendor about the request when their offer fails to send', async () => {
+      prisma.inventoryItem.findMany.mockResolvedValue([iphone13('v1', 450_000)]);
+      chatRepository.createMessage.mockRejectedValue(new Error('db down'));
+
+      await notifiedFor('iPhone 13');
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(notificationsByType()).toEqual({ REQUEST_MATCH: ['v1'] });
+    });
   });
 });

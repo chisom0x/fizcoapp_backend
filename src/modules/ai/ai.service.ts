@@ -67,7 +67,7 @@ Return ONLY a valid JSON object (with no markdown, no backticks, no code fence) 
   "others": "string or null (Any extra notes like warranty, carrier lock, battery percentage, accessories)"
 }
 
-Only use details the seller actually wrote. Never fill a field with placeholder text such as "No additional details provided", "N/A" or "Not specified"; use an empty string or null instead.
+Only use details the seller actually wrote. Leave the price out of every field; it is stored separately. Never fill a field with placeholder text such as "No additional details provided", "N/A" or "Not specified"; use an empty string or null instead.
 `;
 
       const response = await axios.post(

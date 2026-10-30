@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -6,6 +7,7 @@ import { InventoryRepository } from './inventory.repository';
 import { AiService } from '../ai/ai.service';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { UpdateInventoryDto } from './dto/update-inventory.dto';
+import { extractPrice, MISSING_PRICE_MESSAGE } from './price';
 
 @Injectable()
 export class InventoryService {
@@ -15,6 +17,13 @@ export class InventoryService {
   ) {}
 
   async create(userId: string, dto: CreateInventoryDto) {
+    // Buyers are matched to the cheapest offers, so a listing without a price is refused before
+    // it costs an AI call
+    const price = extractPrice(dto.rawInput);
+    if (price === null) {
+      throw new BadRequestException(MISSING_PRICE_MESSAGE);
+    }
+
     // 1. Process natural language entry through Lao Zhang GPT-4o
     const parsed = await this.aiService.parseProductInput(dto.rawInput);
 
@@ -25,6 +34,7 @@ export class InventoryService {
       description: parsed.description,
       rawInput: dto.rawInput,
       imageUrls: dto.imageUrls || [],
+      price,
       brand: parsed.brand,
       model: parsed.model,
       storage: parsed.storage,
@@ -62,13 +72,14 @@ export class InventoryService {
       throw new NotFoundException('Inventory item not found');
     }
 
-    // Expose only title, description, rawInput, imageUrls, createdAt to the user
+    // Expose only title, description, rawInput, imageUrls, price, createdAt to the user
     return {
       id: item.id,
       title: item.title,
       description: item.description,
       rawInput: item.rawInput,
       imageUrls: item.imageUrls,
+      price: item.price,
       createdAt: item.createdAt,
     };
   }
@@ -83,11 +94,16 @@ export class InventoryService {
 
     // If user edited their rawInput, re-run AI parsing system!
     if (dto.rawInput && dto.rawInput.trim() !== existing.rawInput.trim()) {
+      const price = dto.price ?? extractPrice(dto.rawInput);
+      if (price === null) {
+        throw new BadRequestException(MISSING_PRICE_MESSAGE);
+      }
       const parsed = await this.aiService.parseProductInput(dto.rawInput);
       updateData = {
         title: parsed.title,
         description: parsed.description,
         rawInput: dto.rawInput,
+        price,
         brand: parsed.brand,
         model: parsed.model,
         storage: parsed.storage,
@@ -98,6 +114,7 @@ export class InventoryService {
     } else {
       if (dto.title) updateData.title = dto.title.trim();
       if (dto.description) updateData.description = dto.description.trim();
+      if (dto.price !== undefined) updateData.price = dto.price;
     }
 
     if (dto.imageUrls !== undefined) {
@@ -113,6 +130,7 @@ export class InventoryService {
       description: updated!.description,
       rawInput: updated!.rawInput,
       imageUrls: updated!.imageUrls,
+      price: updated!.price,
       createdAt: updated!.createdAt,
     };
   }

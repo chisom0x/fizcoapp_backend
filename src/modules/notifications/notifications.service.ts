@@ -162,49 +162,33 @@ export class NotificationsService implements OnModuleInit {
   }
 
   /**
-   * Broadcast notification to vendors whose inventory matches a newly posted request
+   * Tell vendors whose inventory matches a newly posted request that they can respond to it
    */
   async notifyMatchingVendors(
     requestId: string,
     requestTitle: string,
-    brand: string,
-    creatorId: string,
-    keywordSets: string[][],
+    vendorIds: string[],
     onNotify?: (userId: string, payload: any) => void,
   ) {
-    try {
-      const matches = await this.notificationsRepository.findVendorsWithMatchingInventory(
-        brand,
-        creatorId,
-        keywordSets,
-      );
-
-      this.logger.log(`Request ${requestId} ("${requestTitle}") matched ${matches.length} vendor(s)`);
-
-      const payload = {
-        title: '🔥 New Request Matching Your Inventory!',
-        body: `A buyer just requested "${requestTitle}". You have this in stock—tap to respond!`,
-        data: { requestId, type: 'REQUEST_MATCH' },
-      };
-      // One vendor's failed delivery must not stop the others from hearing about the request
-      const results = await Promise.allSettled(
-        matches.map(async (item) => {
-          await this.notifyUser(item.userId, payload.title, payload.body, payload.data);
-          onNotify?.(item.userId, payload);
-        }),
-      );
-      results.forEach((r, i) => {
-        if (r.status === 'rejected') {
-          this.logger.error(
-            `Failed to notify vendor ${matches[i].userId} of request ${requestId}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`,
-          );
-        }
-      });
-    } catch (error) {
-      this.logger.error(
-        `Failed to notify matching vendors for request ${requestId}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+    const payload = {
+      title: '🔥 New Request Matching Your Inventory!',
+      body: `A buyer just requested "${requestTitle}". You have this in stock—tap to respond!`,
+      data: { requestId, type: 'REQUEST_MATCH' },
+    };
+    // One vendor's failed delivery must not stop the others from hearing about the request
+    const results = await Promise.allSettled(
+      vendorIds.map(async (vendorId) => {
+        await this.notifyUser(vendorId, payload.title, payload.body, payload.data);
+        onNotify?.(vendorId, payload);
+      }),
+    );
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') {
+        this.logger.error(
+          `Failed to notify vendor ${vendorIds[i]} of request ${requestId}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`,
+        );
+      }
+    });
   }
 
   async getUserNotifications(userId: string, page = 1, limit = 50) {

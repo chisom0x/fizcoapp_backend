@@ -169,18 +169,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
         sThreads.add(`chat_${cleanId}`);
       }
 
-      // Send initial participant status to joining user
-      const participantStatus = await this.chatService.getThreadParticipantStatus(
-        data.threadId,
-        userId,
-      );
+      // Send initial participant status to joining user, and mark messages read upon joining
+      // the thread; neither waits on the other
+      const [participantStatus] = await Promise.all([
+        this.chatService.getThreadParticipantStatus(data.threadId, userId),
+        userId ? this.chatService.markRead(data.threadId, userId) : null,
+      ]);
       if (participantStatus) {
         client.emit('thread_participant_status', participantStatus);
-      }
-
-      // Automatically mark messages read upon joining thread
-      if (userId) {
-        await this.chatService.markRead(data.threadId, userId);
       }
     }
   }

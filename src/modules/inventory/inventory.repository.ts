@@ -11,6 +11,7 @@ export class InventoryRepository {
     description: string;
     rawInput: string;
     imageUrls: string[];
+    price: number;
     brand?: string;
     model?: string;
     storage?: string;
@@ -26,6 +27,7 @@ export class InventoryRepository {
         description: true,
         rawInput: true,
         imageUrls: true,
+        price: true,
         createdAt: true,
       },
     });
@@ -56,6 +58,7 @@ export class InventoryRepository {
           description: true,
           rawInput: true,
           imageUrls: true,
+          price: true,
           createdAt: true,
         },
       }),
@@ -74,6 +77,7 @@ export class InventoryRepository {
         description: true,
         rawInput: true,
         imageUrls: true,
+        price: true,
         brand: true,
         model: true,
         storage: true,
@@ -93,6 +97,7 @@ export class InventoryRepository {
       description?: string;
       rawInput?: string;
       imageUrls?: string[];
+      price?: number;
       brand?: string;
       model?: string;
       storage?: string;

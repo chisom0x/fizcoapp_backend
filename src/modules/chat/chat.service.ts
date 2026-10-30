@@ -83,18 +83,14 @@ export class ChatService {
       throw new ForbiddenException('Not authorized to access this conversation');
     }
 
-    const messages = await this.chatRepository.findMessagesByThread(
-      thread.id,
-      take,
-      before,
-    );
-
-    // Auto mark read for current user; older pages hold nothing new to mark
-    if (!before) {
-      await this.chatRepository.markMessagesRead(thread.id, userId);
-      if (this.chatGateway) {
-        this.chatGateway.broadcastMessagesRead(thread.id, userId);
-      }
+    // Marking read only touches messages from the other side, whose isRead below is always
+    // true, so it runs alongside the fetch. Older pages hold nothing new to mark
+    const [messages] = await Promise.all([
+      this.chatRepository.findMessagesByThread(thread.id, take, before),
+      before ? null : this.chatRepository.markMessagesRead(thread.id, userId),
+    ]);
+    if (!before && this.chatGateway) {
+      this.chatGateway.broadcastMessagesRead(thread.id, userId);
     }
 
     const otherParticipantId =
@@ -118,6 +114,7 @@ export class ChatService {
         isDeleted: m.isDeleted,
         taggedRequestId: m.taggedRequestId,
         taggedRequest: m.taggedRequest,
+        inventoryItem: m.isDeleted ? null : m.inventoryItem,
         replyToMessageId: m.replyToMessageId,
         replyToSenderName: m.replyToSenderName,
         replyToText: (m as any).replyToText || m.replyToMessage?.text || null,
@@ -199,11 +196,12 @@ export class ChatService {
         })
         .catch(() => {});
     } else {
-      // Recipient is already in thread viewing the conversation
-      await this.chatRepository.markMessagesRead(resolvedThreadId, recipientId);
-      if (this.chatGateway) {
-        this.chatGateway.broadcastMessagesRead(resolvedThreadId, recipientId);
-      }
+      // Recipient is already in thread viewing the conversation. The reply already says isRead,
+      // so the sender doesn't wait on this; the broadcast follows once it's stored
+      this.chatRepository
+        .markMessagesRead(resolvedThreadId, recipientId)
+        .then(() => this.chatGateway?.broadcastMessagesRead(resolvedThreadId, recipientId))
+        .catch(() => {});
     }
 
     return {
@@ -218,6 +216,7 @@ export class ChatService {
       isDeleted: message.isDeleted,
       taggedRequestId: message.taggedRequestId,
       taggedRequest: message.taggedRequest,
+      inventoryItem: message.inventoryItem,
       replyToMessageId: message.replyToMessageId,
       replyToSenderName: message.replyToSenderName,
       replyToText: message.replyToText || dto.replyToText || null,

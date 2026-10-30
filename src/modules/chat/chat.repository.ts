@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { MessageType } from '@prisma/client';
+import { MessageType, Prisma } from '@prisma/client';
 
 @Injectable()
 export class ChatRepository {
@@ -234,6 +234,7 @@ export class ChatRepository {
         isDeleted: true,
         senderId: true,
         taggedRequestId: true,
+        inventoryItem: true,
         taggedRequest: {
           select: {
             id: true,
@@ -274,6 +275,7 @@ export class ChatRepository {
     type?: MessageType;
     isSystem?: boolean;
     taggedRequestId?: string;
+    inventoryItem?: Prisma.InputJsonValue;
     replyToMessageId?: string;
     replyToSenderName?: string;
     replyToText?: string;
@@ -287,6 +289,7 @@ export class ChatRepository {
         type: data.type || MessageType.TEXT,
         isSystem: data.isSystem || false,
         taggedRequestId: data.taggedRequestId,
+        inventoryItem: data.inventoryItem,
         replyToMessageId: data.replyToMessageId,
         replyToSenderName: data.replyToSenderName,
         replyToText: data.replyToText,
@@ -301,6 +304,7 @@ export class ChatRepository {
         isDeleted: true,
         senderId: true,
         taggedRequestId: true,
+        inventoryItem: true,
         taggedRequest: {
           select: {
             id: true,

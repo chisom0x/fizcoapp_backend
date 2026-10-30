@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsArray } from 'class-validator';
+import { IsOptional, IsString, IsArray, IsInt, Min, Max } from 'class-validator';
 
 export class UpdateInventoryDto {
   @IsOptional()
@@ -12,6 +12,13 @@ export class UpdateInventoryDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  /** Whole naira */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(1_000_000_000)
+  price?: number;
 
   @IsOptional()
   @IsArray()

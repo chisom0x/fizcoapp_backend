@@ -117,7 +117,8 @@ export class NotificationsRepository {
    * A vendor matches when one of their inventory items contains every keyword of at
    * least one phrasing of the request, compared as whole tokens of the item's
    * title, model and brand. Vendors in a block relationship with the requester are
-   * skipped, mirroring the open-requests feed.
+   * skipped, mirroring the open-requests feed. Each vendor comes back once, with their
+   * cheapest matching item (priced items before unpriced ones).
    */
   async findVendorsWithMatchingInventory(
     brand: string,
@@ -138,7 +139,10 @@ export class NotificationsRepository {
       select: {
         id: true,
         title: true,
+        description: true,
         rawInput: true,
+        imageUrls: true,
+        price: true,
         brand: true,
         model: true,
         userId: true,
@@ -147,12 +151,15 @@ export class NotificationsRepository {
             id: true,
             fcmToken: true,
             fullName: true,
+            subscriptionPlan: true,
           },
         },
       },
     });
 
-    const matchingVendors = new Map<string, { userId: string; user: { id: string; fcmToken: string | null; fullName: string } }>();
+    type Item = (typeof items)[number];
+    const matchingVendors = new Map<string, { userId: string; user: Item['user']; item: Omit<Item, 'user'> }>();
+    const priceOf = (item: { price: number | null }) => item.price ?? Infinity;
     const targetBrand = (brand || '').toLowerCase().trim();
     const unknownBrands = new Set(['', 'other', 'unknown']);
 
@@ -181,11 +188,10 @@ export class NotificationsRepository {
         set.every((kw) => itemTokens.has(kw)),
       );
 
-      if (matchesGadget) {
-        matchingVendors.set(item.userId, {
-          userId: item.userId,
-          user: item.user,
-        });
+      const current = matchingVendors.get(item.userId);
+      if (matchesGadget && (!current || priceOf(item) < priceOf(current.item))) {
+        const { user, ...offered } = item;
+        matchingVendors.set(item.userId, { userId: item.userId, user, item: offered });
       }
     }
 

@@ -4,7 +4,10 @@ datasource db {
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Loads nested relations in one SQL statement (LATERAL joins) instead of a query per relation
+  // level, and applies nested `take` in the database rather than after fetching every row
+  previewFeatures = ["relationJoins"]
 }
 
 enum RequestStatus {
@@ -23,6 +26,7 @@ enum MessageType {
   TEXT
   IMAGE
   REQUEST_ATTACHMENT
+  INVENTORY_ATTACHMENT
   SYSTEM
 }
 
@@ -111,7 +115,7 @@ model Request {
   chatThreads           ChatThread[]
   messagesAsAttachment  Message[]         @relation("TaggedRequests")
 
-  @@index([requesterId])
+  @@index([requesterId, createdAt])
   @@index([status, createdAt])
 }
 
@@ -144,8 +148,8 @@ model ChatThread {
   messages         Message[]
 
   @@unique([requestId, vendorId])
-  @@index([creatorId])
-  @@index([vendorId])
+  @@index([creatorId, updatedAt])
+  @@index([vendorId, updatedAt])
   @@index([requestId])
 }
 
@@ -162,6 +166,8 @@ model Message {
   isDeleted          Boolean      @default(false)
   taggedRequestId    String?
   taggedRequest      Request?     @relation("TaggedRequests", fields: [taggedRequestId], references: [id], onDelete: SetNull)
+  // Snapshot of the vendor's inventory item as it was offered, so the chat keeps it after edits or deletion
+  inventoryItem      Json?
   replyToMessageId   String?
   replyToMessage     Message?     @relation("ReplyRelation", fields: [replyToMessageId], references: [id])
   replies            Message[]    @relation("ReplyRelation")
@@ -182,6 +188,8 @@ model InventoryItem {
   description String
   rawInput    String
   imageUrls   String[] @default([])
+  // Whole naira, read from the vendor's own text; null only on items saved before prices were required
+  price       Int?
   brand       String?
   model       String?
   storage     String?
@@ -191,7 +199,7 @@ model InventoryItem {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([userId])
+  @@index([userId, createdAt])
   @@index([brand, model])
   @@index([title])
 }
@@ -207,6 +215,7 @@ model Notification {
   createdAt DateTime @default(now())
 
   @@index([userId, isRead])
+  @@index([userId, createdAt])
 }
 
 model Feedback {

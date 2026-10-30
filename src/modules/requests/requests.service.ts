@@ -10,11 +10,22 @@ import {
 import { RequestsRepository } from './requests.repository';
 import { AiService } from '../ai/ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationsRepository } from '../notifications/notifications.repository';
 import { CreateRequestDto } from './dto/create-request.dto';
 import { UpdateRequestDto } from './dto/update-request.dto';
 import { FulfillRequestDto } from './dto/fulfill-request.dto';
+import { MessageType } from '@prisma/client';
 
 import { ChatGateway } from '../chat/chat.gateway';
+import { ChatRepository } from '../chat/chat.repository';
+import { formatNaira } from '../inventory/price';
+
+type VendorMatch = Awaited<
+  ReturnType<NotificationsRepository['findVendorsWithMatchingInventory']>
+>[number];
+
+// How many of the cheapest matching Premium vendors get their item sent to the requester
+const AUTO_OFFER_LIMIT = 10;
 
 @Injectable()
 export class RequestsService {
@@ -22,6 +33,8 @@ export class RequestsService {
 
   constructor(
     private readonly requestsRepository: RequestsRepository,
+    private readonly notificationsRepository: NotificationsRepository,
+    private readonly chatRepository: ChatRepository,
     private readonly aiService: AiService,
     // Both import ChatService, which imports this file, so they're undefined while it loads
     @Inject(forwardRef(() => NotificationsService))
@@ -163,22 +176,129 @@ export class RequestsService {
         // AI service is optional; fallback to deterministic local heuristic
       }
 
+      const matches = await this.notificationsRepository.findVendorsWithMatchingInventory(
+        brand,
+        requesterId,
+        keywordSets,
+      );
+      this.logger.log(`Request ${requestId} ("${title}") matched ${matches.length} vendor(s)`);
+
+      const offered = await this.sendCheapestOffers(
+        { id: requestId, title, requesterId },
+        matches,
+      );
+
+      // Vendors whose item wasn't sent are told about the request so they can respond themselves;
       // notifyUser already emits 'new_notification' to the vendor's room
       await this.notificationsService.notifyMatchingVendors(
         requestId,
         title,
-        brand,
-        requesterId,
-        keywordSets,
+        matches.map((m) => m.userId).filter((id) => !offered.has(id)),
         (vendorUserId, payload) => {
           this.chatGateway.server
             ?.to(`user_${vendorUserId}`)
             .emit('request_match', payload);
         },
       );
-    } catch {
-      // Background notifications don't interrupt request creation
+    } catch (error) {
+      // Background matching doesn't interrupt request creation
+      this.logger.error(
+        `Vendor matching failed for request ${requestId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
+  }
+
+  /**
+   * Premium vendors with the cheapest priced matches have their item posted into a chat with the
+   * requester and are marked interested, without waiting for them to respond. Returns the ids of
+   * the vendors whose offer went out
+   */
+  private async sendCheapestOffers(
+    request: { id: string; title: string; requesterId: string },
+    matches: VendorMatch[],
+  ): Promise<Set<string>> {
+    const offers = matches
+      .filter(
+        (m) => m.item.price !== null && m.user.subscriptionPlan.toLowerCase() === 'premium',
+      )
+      .sort((a, b) => a.item.price! - b.item.price!)
+      .slice(0, AUTO_OFFER_LIMIT);
+
+    const results = await Promise.allSettled(offers.map((offer) => this.sendOffer(request, offer)));
+    const sent = new Set<string>();
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') {
+        sent.add(offers[i].userId);
+      } else {
+        this.logger.error(
+          `Failed to send vendor ${offers[i].userId}'s offer for request ${request.id}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`,
+        );
+      }
+    });
+    if (sent.size === 0) return sent;
+
+    // One refresh and one notification for the whole batch rather than one per vendor
+    this.chatGateway.server
+      ?.to(`user_${request.requesterId}`)
+      .emit('new_chat_thread', { requestId: request.id });
+    this.notificationsService
+      .notifyUser(
+        request.requesterId,
+        `🛍️ ${sent.size} vendor${sent.size === 1 ? '' : 's'} sent you offers`,
+        `Vendors with "${request.title}" in stock have sent their best prices to your chats.`,
+        { requestId: request.id, type: 'VENDOR_OFFERS' },
+      )
+      .catch((err) =>
+        this.logger.error(
+          `Failed to notify requester of offers for ${request.id}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+    return sent;
+  }
+
+  private async sendOffer(
+    request: { id: string; title: string; requesterId: string },
+    { userId: vendorId, item }: VendorMatch,
+  ) {
+    const thread = await this.requestsRepository.getOrCreateChatThread(
+      request.id,
+      request.requesterId,
+      vendorId,
+    );
+    const price = formatNaira(item.price!);
+    await this.chatRepository.createMessage({
+      threadId: thread.id,
+      senderId: vendorId,
+      text: `${item.title} · ${price}`,
+      type: MessageType.INVENTORY_ATTACHMENT,
+      taggedRequestId: request.id,
+      // The fields the vendor sees on their own inventory, as they were when offered
+      inventoryItem: {
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        rawInput: item.rawInput,
+        imageUrls: item.imageUrls,
+        price: item.price,
+      },
+    });
+    await this.requestsRepository.addInterest(request.id, vendorId);
+
+    this.chatGateway.server
+      ?.to(`user_${vendorId}`)
+      .emit('new_chat_thread', { threadId: thread.id, requestId: request.id });
+    this.notificationsService
+      .notifyUser(
+        vendorId,
+        '📦 Your item was sent to a buyer',
+        `A buyer requested "${request.title}". We sent them your ${item.title} at ${price}. Reply in the chat to close the deal.`,
+        { requestId: request.id, chatThreadId: thread.id, type: 'OFFER_SENT' },
+      )
+      .catch((err) =>
+        this.logger.error(
+          `Failed to tell vendor ${vendorId} their offer was sent: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
   }
 
   async getOpenRequests(userId: string, page = 1, limit = 20, search?: string) {
