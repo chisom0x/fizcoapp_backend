@@ -5,6 +5,7 @@ import {
   IsString,
   MinLength,
   Length,
+  MaxLength,
 } from 'class-validator';
 
 export class SignupDto {
@@ -15,6 +16,11 @@ export class SignupDto {
   @IsOptional()
   @IsString()
   businessName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  shopAddress?: string;
 
   @IsNotEmpty()
   @IsEmail()

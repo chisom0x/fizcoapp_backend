@@ -34,6 +34,18 @@ export class ChatController {
     };
   }
 
+  @Get(':id/participant')
+  async getParticipant(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') threadId: string,
+  ) {
+    const profile = await this.chatService.getThreadParticipantProfile(threadId, user.id);
+    return {
+      message: 'Contact profile retrieved',
+      data: profile,
+    };
+  }
+
   @Get(':id/messages')
   async getMessages(
     @CurrentUser() user: AuthenticatedUser,

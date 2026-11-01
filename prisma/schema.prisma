@@ -25,6 +25,7 @@ enum VerificationStatus {
 enum MessageType {
   TEXT
   IMAGE
+  VIDEO
   REQUEST_ATTACHMENT
   INVENTORY_ATTACHMENT
   SYSTEM
@@ -34,6 +35,7 @@ model User {
   id                    String              @id @default(uuid())
   fullName              String
   businessName          String?
+  shopAddress           String?
   email                 String              @unique
   phoneNumber           String              @unique
   passwordHash          String
@@ -161,6 +163,7 @@ model Message {
   sender             User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
   text               String
   imageUrl           String?
+  videoUrl           String?
   type               MessageType  @default(TEXT)
   isSystem           Boolean      @default(false)
   isDeleted          Boolean      @default(false)

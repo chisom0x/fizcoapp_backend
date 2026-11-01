@@ -19,17 +19,24 @@ export class MediaService {
   }
 
   /**
-   * Signs a direct upload from the app to Cloudinary, so image bytes skip this server. The
-   * signature covers the folder and formats, so it can't be reused to upload anything else,
-   * and Cloudinary rejects it an hour after the timestamp
+   * Signs a direct upload from the app to Cloudinary, so image and video bytes skip this
+   * server. The signature covers the folder and formats, so it can't be reused to upload
+   * anything else, and Cloudinary rejects it an hour after the timestamp
    */
-  createUploadSignature(folder = 'fizco/uploads') {
+  createUploadSignature(kind: 'image' | 'video' = 'image') {
     const { cloud_name, api_key, api_secret } = cloudinary.config();
-    const params = {
-      timestamp: Math.round(Date.now() / 1000),
-      folder,
-      allowed_formats: 'jpg,jpeg,png,webp,heic',
-    };
+    const params =
+      kind === 'video'
+        ? {
+            timestamp: Math.round(Date.now() / 1000),
+            folder: 'fizco/chat-videos',
+            allowed_formats: 'mp4,mov',
+          }
+        : {
+            timestamp: Math.round(Date.now() / 1000),
+            folder: 'fizco/uploads',
+            allowed_formats: 'jpg,jpeg,png,webp,heic',
+          };
     return {
       cloudName: cloud_name,
       apiKey: api_key,

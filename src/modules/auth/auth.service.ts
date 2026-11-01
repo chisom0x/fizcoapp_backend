@@ -140,6 +140,7 @@ export class AuthService {
     const user = await this.authRepository.createUser({
       fullName: dto.fullName,
       businessName: dto.businessName,
+      shopAddress: dto.shopAddress?.trim() || undefined,
       email: dto.email,
       phoneNumber: dto.phoneNumber,
       passwordHash,

@@ -108,6 +108,7 @@ export class ChatService {
         id: m.id,
         text: m.isDeleted ? 'This message was deleted' : m.text,
         imageUrl: m.isDeleted ? null : m.imageUrl,
+        videoUrl: m.isDeleted ? null : m.videoUrl,
         timestamp: m.createdAt,
         isFromMe,
         isSystem: m.isSystem,
@@ -156,13 +157,15 @@ export class ChatService {
 
     let type: MessageType = MessageType.TEXT;
     if (dto.imageUrl) type = MessageType.IMAGE;
+    if (dto.videoUrl) type = MessageType.VIDEO;
     if (dto.taggedRequestId) type = MessageType.REQUEST_ATTACHMENT;
 
     const message = await this.chatRepository.createMessage({
       threadId: resolvedThreadId,
       senderId,
-      text: dto.text || (dto.imageUrl ? 'Photo' : 'Request attachment'),
+      text: dto.text || (dto.videoUrl ? 'Video' : dto.imageUrl ? 'Photo' : 'Request attachment'),
       imageUrl: dto.imageUrl,
+      videoUrl: dto.videoUrl,
       type,
       taggedRequestId: dto.taggedRequestId,
       replyToMessageId: dto.replyToMessageId,
@@ -186,7 +189,11 @@ export class ChatService {
 
     // If NOT actively on this chat screen, dispatch push and in-app notification to save on notifications page
     if (!isRecipientInThread) {
-      const notifText = dto.imageUrl ? '📷 Sent a photo' : (dto.text || 'Sent an attachment');
+      const notifText = dto.videoUrl
+        ? '🎥 Sent a video'
+        : dto.imageUrl
+          ? '📷 Sent a photo'
+          : dto.text || 'Sent an attachment';
       this.notificationsService
         .notifyUser(recipientId, senderName, notifText, {
           type: 'NEW_MESSAGE',
@@ -210,6 +217,7 @@ export class ChatService {
       senderId: message.senderId,
       text: message.text,
       imageUrl: message.imageUrl,
+      videoUrl: message.videoUrl,
       timestamp: message.createdAt,
       isFromMe: true,
       isSystem: message.isSystem,
@@ -255,6 +263,24 @@ export class ChatService {
 
   async getUserLastSeen(userId: string) {
     return this.chatRepository.getUserLastSeen(userId);
+  }
+
+  async getThreadParticipantProfile(threadId: string, userId: string) {
+    const thread = await this.chatRepository.findThreadByIdOrContext(threadId, userId);
+    if (!thread) {
+      throw new NotFoundException('Chat thread not found');
+    }
+
+    if (thread.creatorId !== userId && thread.vendorId !== userId) {
+      throw new ForbiddenException('Not authorized to access this conversation');
+    }
+
+    const participantId = thread.creatorId === userId ? thread.vendorId : thread.creatorId;
+    const profile = await this.chatRepository.findParticipantProfile(participantId);
+    if (!profile) {
+      throw new NotFoundException('Contact not found');
+    }
+    return profile;
   }
 
   async getThreadParticipantStatus(threadId: string, currentUserId: string) {

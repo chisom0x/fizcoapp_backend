@@ -12,6 +12,7 @@ export class UsersRepository {
         id: true,
         fullName: true,
         businessName: true,
+        shopAddress: true,
         email: true,
         phoneNumber: true,
         subscriptionPlan: true,
@@ -51,6 +52,7 @@ export class UsersRepository {
     email?: string;
     phoneNumber?: string;
     businessName?: string;
+    shopAddress?: string | null;
     avatarUrl?: string;
   }) {
     return this.prisma.user.update({
@@ -60,6 +62,7 @@ export class UsersRepository {
         id: true,
         fullName: true,
         businessName: true,
+        shopAddress: true,
         email: true,
         phoneNumber: true,
         subscriptionPlan: true,

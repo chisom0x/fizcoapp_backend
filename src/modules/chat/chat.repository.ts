@@ -229,6 +229,7 @@ export class ChatRepository {
         id: true,
         text: true,
         imageUrl: true,
+        videoUrl: true,
         type: true,
         isSystem: true,
         isDeleted: true,
@@ -272,6 +273,7 @@ export class ChatRepository {
     senderId: string;
     text: string;
     imageUrl?: string;
+    videoUrl?: string;
     type?: MessageType;
     isSystem?: boolean;
     taggedRequestId?: string;
@@ -286,6 +288,7 @@ export class ChatRepository {
         senderId: data.senderId,
         text: data.text,
         imageUrl: data.imageUrl,
+        videoUrl: data.videoUrl,
         type: data.type || MessageType.TEXT,
         isSystem: data.isSystem || false,
         taggedRequestId: data.taggedRequestId,
@@ -299,6 +302,7 @@ export class ChatRepository {
         id: true,
         text: true,
         imageUrl: true,
+        videoUrl: true,
         type: true,
         isSystem: true,
         isDeleted: true,
@@ -331,7 +335,7 @@ export class ChatRepository {
     await this.prisma.chatThread.update({
       where: { id: data.threadId },
       data: {
-        lastMessageText: data.text || (data.imageUrl ? 'Photo' : 'Attachment'),
+        lastMessageText: data.text || (data.videoUrl ? 'Video' : data.imageUrl ? 'Photo' : 'Attachment'),
         lastMessageAt: message.createdAt,
       },
     });
@@ -359,6 +363,7 @@ export class ChatRepository {
         isDeleted: true,
         text: 'This message was deleted',
         imageUrl: null,
+        videoUrl: null,
       },
       include: {
         thread: {
@@ -414,6 +419,22 @@ export class ChatRepository {
       where: { id: userId },
       data: { lastSeenAt: date },
       select: { id: true, lastSeenAt: true },
+    });
+  }
+
+  async findParticipantProfile(userId: string) {
+    return this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        fullName: true,
+        businessName: true,
+        shopAddress: true,
+        email: true,
+        phoneNumber: true,
+        avatarUrl: true,
+        isVerified: true,
+      },
     });
   }
 

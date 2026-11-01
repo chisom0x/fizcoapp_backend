@@ -82,4 +82,55 @@ describe('ChatService interest via tagged messages', () => {
     expect(requestsService.assertCanShowInterest).not.toHaveBeenCalled();
     expect(requestsService.recordInterest).not.toHaveBeenCalled();
   });
+
+  it('saves a video message as a video, labelled for previews and notifications', async () => {
+    const notificationsService = (service as any).notificationsService;
+    const result = await service.sendMessage('thread_1', 'vendor_1', 'Vendor One', {
+      videoUrl: 'https://res.cloudinary.com/demo/video/upload/v1/fizco/chat-videos/clip.mp4',
+    });
+
+    expect(chatRepository.createMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'VIDEO',
+        text: 'Video',
+        videoUrl: 'https://res.cloudinary.com/demo/video/upload/v1/fizco/chat-videos/clip.mp4',
+      }),
+    );
+    expect(result.videoUrl).toContain('/video/upload/');
+    expect(notificationsService.notifyUser).toHaveBeenCalledWith(
+      'buyer_1',
+      'Vendor One',
+      '🎥 Sent a video',
+      expect.anything(),
+    );
+  });
+});
+
+describe('ChatService participant profile', () => {
+  let chatRepository: Record<string, jest.Mock>;
+  let service: ChatService;
+
+  beforeEach(() => {
+    chatRepository = {
+      findThreadByIdOrContext: jest.fn().mockResolvedValue(thread),
+      findParticipantProfile: jest.fn(async (id) => ({ id, fullName: 'Vendor One' })),
+    };
+    service = new ChatService(chatRepository as any, {} as any, {} as any, {} as any);
+  });
+
+  it("returns the other participant's profile", async () => {
+    await expect(service.getThreadParticipantProfile('thread_1', 'buyer_1')).resolves.toEqual({
+      id: 'vendor_1',
+      fullName: 'Vendor One',
+    });
+    await service.getThreadParticipantProfile('thread_1', 'vendor_1');
+    expect(chatRepository.findParticipantProfile).toHaveBeenLastCalledWith('buyer_1');
+  });
+
+  it('refuses someone outside the conversation', async () => {
+    await expect(
+      service.getThreadParticipantProfile('thread_1', 'stranger'),
+    ).rejects.toThrow('Not authorized to access this conversation');
+    expect(chatRepository.findParticipantProfile).not.toHaveBeenCalled();
+  });
 });

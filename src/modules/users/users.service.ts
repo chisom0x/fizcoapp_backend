@@ -82,7 +82,13 @@ export class UsersService {
   }
 
   async updateProfile(userId: string, dto: UpdateProfileDto) {
-    const updated = await this.usersRepository.updateProfile(userId, dto);
+    // The shop address is optional, so an empty one clears it
+    const shopAddress =
+      dto.shopAddress === undefined ? undefined : dto.shopAddress.trim() || null;
+    const updated = await this.usersRepository.updateProfile(userId, {
+      ...dto,
+      shopAddress,
+    });
     return updated;
   }
 

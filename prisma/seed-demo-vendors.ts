@@ -46,6 +46,7 @@ type ProductKey = keyof typeof PRODUCTS;
 const PRODUCTS = {
   iphone13: {
     title: 'iPhone 13', brand: 'Apple', model: 'iPhone 13', base: 430_000,
+    imageUrls: ['https://images.moneycontrol.com/static-mcnews/2021/10/Apple-iPhone-13-4-770x433.jpg?impolicy=website&width=770&height=431'],
     specs: ['128GB, Midnight, UK used, 89% battery health', '128GB, Blue, clean UK used', '256GB, Starlight, brand new sealed', '128GB, Pink, open box'],
   },
   iphone14pro: {
@@ -102,6 +103,7 @@ function listingsFor(vendorIndex: number) {
       title: product.title,
       description: spec,
       rawInput,
+      imageUrls: 'imageUrls' in product ? product.imageUrls : [],
       price,
       brand: product.brand,
       model: product.model,

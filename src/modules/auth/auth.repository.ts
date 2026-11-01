@@ -12,6 +12,7 @@ export class AuthRepository {
         id: true,
         fullName: true,
         businessName: true,
+        shopAddress: true,
         email: true,
         phoneNumber: true,
         passwordHash: true,
@@ -37,6 +38,7 @@ export class AuthRepository {
         id: true,
         fullName: true,
         businessName: true,
+        shopAddress: true,
         email: true,
         phoneNumber: true,
         passwordHash: true,
@@ -62,6 +64,7 @@ export class AuthRepository {
         id: true,
         fullName: true,
         businessName: true,
+        shopAddress: true,
         email: true,
         phoneNumber: true,
         subscriptionPlan: true,
@@ -82,6 +85,7 @@ export class AuthRepository {
   async createUser(data: {
     fullName: string;
     businessName?: string;
+    shopAddress?: string;
     email: string;
     phoneNumber: string;
     passwordHash: string;
@@ -109,6 +113,7 @@ export class AuthRepository {
       data: {
         fullName: data.fullName,
         businessName: data.businessName,
+        shopAddress: data.shopAddress,
         email: cleanEmail,
         phoneNumber: data.phoneNumber,
         passwordHash: data.passwordHash,
@@ -123,6 +128,7 @@ export class AuthRepository {
         id: true,
         fullName: true,
         businessName: true,
+        shopAddress: true,
         email: true,
         phoneNumber: true,
         subscriptionPlan: true,

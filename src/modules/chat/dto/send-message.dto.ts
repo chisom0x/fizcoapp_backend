@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsOptional, IsString, IsUrl } from 'class-validator';
 
 export class SendMessageDto {
   @IsOptional()
@@ -8,6 +8,11 @@ export class SendMessageDto {
   @IsOptional()
   @IsString()
   imageUrl?: string;
+
+  /** The recipient's app downloads it, so only an https link is accepted */
+  @IsOptional()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  videoUrl?: string;
 
   @IsOptional()
   @IsString()

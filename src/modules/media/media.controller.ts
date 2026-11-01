@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Query,
   UseGuards,
   UploadedFile,
   UploadedFiles,
@@ -17,10 +18,10 @@ export class MediaController {
   constructor(private readonly mediaService: MediaService) {}
 
   @Get('upload-signature')
-  getUploadSignature() {
+  getUploadSignature(@Query('kind') kind?: string) {
     return {
       message: 'Upload signature created',
-      data: this.mediaService.createUploadSignature(),
+      data: this.mediaService.createUploadSignature(kind === 'video' ? 'video' : 'image'),
     };
   }
 
