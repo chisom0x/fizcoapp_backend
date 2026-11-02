@@ -19,6 +19,7 @@ import { VerifyCacDto } from './dto/verify-cac.dto';
 import { TeamInviteDto } from './dto/team-invite.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { BlockAndReportVendorDto } from './dto/block-and-report-vendor.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 
@@ -33,6 +34,18 @@ export class UsersController {
     return {
       message: 'User profile retrieved',
       data: profile,
+    };
+  }
+
+  @Delete('me')
+  async deleteAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: DeleteAccountDto,
+  ) {
+    const result = await this.usersService.deleteAccount(user.id, dto);
+    return {
+      message: 'Account deleted',
+      data: result,
     };
   }
 

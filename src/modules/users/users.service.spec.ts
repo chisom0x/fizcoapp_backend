@@ -1,11 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
 import { UsersRepository } from './users.repository';
 import { ChatGateway } from '../chat/chat.gateway';
 import { AiService } from '../ai/ai.service';
 import { MediaService } from '../media/media.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 describe('UsersService CAC Verification', () => {
   let service: UsersService;
@@ -14,6 +16,7 @@ describe('UsersService CAC Verification', () => {
   let aiService: jest.Mocked<Partial<AiService>>;
   let mediaService: jest.Mocked<Partial<MediaService>>;
   let notificationsService: jest.Mocked<Partial<NotificationsService>>;
+  let subscriptionsService: jest.Mocked<Partial<SubscriptionsService>>;
 
   beforeEach(async () => {
     usersRepository = {
@@ -55,6 +58,12 @@ describe('UsersService CAC Verification', () => {
       notifyMatchingVendors: jest.fn().mockResolvedValue(undefined as any),
     };
 
+    subscriptionsService = {
+      cancelSubscription: jest
+        .fn()
+        .mockRejectedValue(new BadRequestException('No active subscription found to cancel')),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
@@ -63,6 +72,7 @@ describe('UsersService CAC Verification', () => {
         { provide: AiService, useValue: aiService },
         { provide: MediaService, useValue: mediaService },
         { provide: NotificationsService, useValue: notificationsService },
+        { provide: SubscriptionsService, useValue: subscriptionsService },
       ],
     }).compile();
 
@@ -191,5 +201,50 @@ describe('UsersService CAC Verification', () => {
         filename: 'scanned_cac.jpg',
       }),
     );
+  });
+
+  describe('deleteAccount', () => {
+    beforeEach(async () => {
+      usersRepository.findWithPassword = jest.fn().mockResolvedValue({
+        id: 'usr_1',
+        passwordHash: await bcrypt.hash('secret123', 4),
+      });
+      usersRepository.deleteAccount = jest.fn().mockResolvedValue(['req_1', 'req_2']);
+      chatGateway.broadcastDeletedRequest = jest.fn();
+    });
+
+    it('refuses a wrong password and deletes nothing', async () => {
+      await expect(service.deleteAccount('usr_1', { password: 'wrong' })).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(usersRepository.deleteAccount).not.toHaveBeenCalled();
+      expect(subscriptionsService.cancelSubscription).not.toHaveBeenCalled();
+    });
+
+    it('deletes the account and takes down its open requests', async () => {
+      await expect(service.deleteAccount('usr_1', { password: 'secret123' })).resolves.toEqual({
+        deleted: true,
+      });
+      expect(usersRepository.deleteAccount).toHaveBeenCalledWith('usr_1');
+      expect(chatGateway.broadcastDeletedRequest).toHaveBeenCalledWith('req_1');
+      expect(chatGateway.broadcastDeletedRequest).toHaveBeenCalledWith('req_2');
+    });
+
+    it('cancels a paid subscription right away before deleting', async () => {
+      (subscriptionsService.cancelSubscription as jest.Mock).mockResolvedValue({ success: true });
+      await service.deleteAccount('usr_1', { password: 'secret123' });
+      expect(subscriptionsService.cancelSubscription).toHaveBeenCalledWith('usr_1', {
+        cancelAtPeriodEnd: false,
+      });
+      expect(usersRepository.deleteAccount).toHaveBeenCalled();
+    });
+
+    it('does not delete when cancelling the subscription fails unexpectedly', async () => {
+      (subscriptionsService.cancelSubscription as jest.Mock).mockRejectedValue(new Error('db down'));
+      await expect(service.deleteAccount('usr_1', { password: 'secret123' })).rejects.toThrow(
+        'db down',
+      );
+      expect(usersRepository.deleteAccount).not.toHaveBeenCalled();
+    });
   });
 });

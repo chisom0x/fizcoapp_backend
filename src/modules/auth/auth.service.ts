@@ -65,6 +65,17 @@ export class AuthService {
   }
 
   async sendOtp(dto: SendOtpDto): Promise<{ success: boolean; message: string }> {
+    // A taken email or phone number is reported before the code goes out, so nobody types in a
+    // code only to be refused. signup() checks again, as the details can change in between
+    if (dto.purpose === 'signup') {
+      if (await this.authRepository.findByEmail(dto.destination)) {
+        throw new ConflictException('An account with this email address already exists');
+      }
+      if (dto.phoneNumber && (await this.authRepository.findByPhone(dto.phoneNumber.trim()))) {
+        throw new ConflictException('An account with this phone number already exists');
+      }
+    }
+
     // Generate secure 6-digit random code
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
@@ -104,6 +115,10 @@ export class AuthService {
   }
 
   async signup(dto: SignupDto) {
+    if (dto.password !== dto.confirmPassword) {
+      throw new BadRequestException('Passwords do not match');
+    }
+
     // 1. Verify OTP
     const isDevTest = process.env.NODE_ENV !== 'production' && dto.otp === '123456';
     if (!isDevTest) {

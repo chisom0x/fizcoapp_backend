@@ -12,9 +12,11 @@ import { VerifyCacDto } from './dto/verify-cac.dto';
 import { TeamInviteDto } from './dto/team-invite.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { BlockAndReportVendorDto } from './dto/block-and-report-vendor.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import { ChatGateway } from '../chat/chat.gateway';
 import { AiService } from '../ai/ai.service';
 import { MediaService } from '../media/media.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -26,6 +28,7 @@ export class UsersService {
     private readonly aiService: AiService,
     private readonly mediaService: MediaService,
     private readonly notificationsService: NotificationsService,
+    private readonly subscriptionsService: SubscriptionsService,
   ) {}
 
   async getProfile(userId: string) {
@@ -336,6 +339,31 @@ export class UsersService {
     return {
       updated: true,
     };
+  }
+
+  async deleteAccount(userId: string, dto: DeleteAccountDto) {
+    const user = await this.usersRepository.findWithPassword(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    if (!(await bcrypt.compare(dto.password, user.passwordHash))) {
+      throw new UnauthorizedException('Password is incorrect');
+    }
+
+    // A paid plan would otherwise keep renewing on the card of an account that's gone
+    try {
+      await this.subscriptionsService.cancelSubscription(userId, { cancelAtPeriodEnd: false });
+    } catch (err) {
+      // Thrown when there's no active subscription, the usual case
+      if (!(err instanceof BadRequestException)) throw err;
+    }
+
+    const removedRequestIds = await this.usersRepository.deleteAccount(userId);
+    for (const requestId of removedRequestIds) {
+      this.chatGateway.broadcastDeletedRequest(requestId);
+    }
+
+    return { deleted: true };
   }
 
   async blockAndReportVendor(userId: string, dto: BlockAndReportVendorDto) {

@@ -58,6 +58,8 @@ export class ChatService {
         fulfilledByVendorName: t.request.fulfilledByVendor?.fullName || null,
         participantId: participant.id,
         participantName: participant.fullName,
+        participantAvatarUrl: participant.avatarUrl,
+        participantDeleted: Boolean(participant.deletedAt),
         participantOnline: isParticipantOnline,
         participantLastSeenAt: lastSeenAt ? (lastSeenAt instanceof Date ? lastSeenAt.toISOString() : String(lastSeenAt)) : null,
         participantLastSeen: isParticipantOnline ? 'Online' : 'Offline',
@@ -145,6 +147,10 @@ export class ChatService {
 
     const resolvedThreadId = thread.id;
     const recipientId = thread.creatorId === senderId ? thread.vendorId : thread.creatorId;
+    const recipient = thread.creatorId === senderId ? thread.vendor : thread.creator;
+    if (recipient.deletedAt) {
+      throw new BadRequestException('This vendor account has been deleted');
+    }
 
     // Tagging a request is how a vendor shows interest in it, so it's checked before the message
     // is saved and recorded after, never on its own
@@ -280,7 +286,8 @@ export class ChatService {
     if (!profile) {
       throw new NotFoundException('Contact not found');
     }
-    return profile;
+    // A deleted account's email and phone number are placeholders, not contact details
+    return profile.deletedAt ? { ...profile, email: null, phoneNumber: null } : profile;
   }
 
   async getThreadParticipantStatus(threadId: string, currentUserId: string) {

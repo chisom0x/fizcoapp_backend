@@ -23,6 +23,7 @@ export class UsersRepository {
         cacSharedByOwnerName: true,
         cacSharedByBusinessName: true,
         avatarUrl: true,
+        plazaImageUrl: true,
         notificationsEnabled: true,
         lastSeenAt: true,
         createdAt: true,
@@ -54,6 +55,7 @@ export class UsersRepository {
     businessName?: string;
     shopAddress?: string | null;
     avatarUrl?: string;
+    plazaImageUrl?: string;
   }) {
     return this.prisma.user.update({
       where: { id },
@@ -70,6 +72,7 @@ export class UsersRepository {
         verificationStatus: true,
         cacRegistrationNumber: true,
         avatarUrl: true,
+        plazaImageUrl: true,
         notificationsEnabled: true,
         lastSeenAt: true,
         createdAt: true,
@@ -168,6 +171,60 @@ export class UsersRepository {
       where: { id },
       data: { passwordHash },
       select: { id: true },
+    });
+  }
+
+  /**
+   * Deletes the account by scrubbing it rather than removing the row, which would cascade to every
+   * chat it was in. Its name becomes "Deleted Account" wherever it was shown, the email and phone
+   * number are freed for a new signup, and its open requests, inventory, notifications and team
+   * invites go. Invites sent to its email go too, so signing up again with that email needs a new
+   * CAC verification rather than rejoining a team. Returns the ids of the requests taken down
+   */
+  async deleteAccount(id: string): Promise<string[]> {
+    return this.prisma.$transaction(async (tx) => {
+      const { email } = await tx.user.findUniqueOrThrow({
+        where: { id },
+        select: { email: true },
+      });
+      const requests = await tx.request.findMany({
+        where: { requesterId: id, isDeleted: false },
+        select: { id: true },
+      });
+      await tx.request.updateMany({
+        where: { requesterId: id, isDeleted: false },
+        data: { isDeleted: true },
+      });
+      await tx.inventoryItem.deleteMany({ where: { userId: id } });
+      await tx.notification.deleteMany({ where: { userId: id } });
+      await tx.teamInvite.deleteMany({
+        where: { OR: [{ inviterId: id }, { inviteeEmail: email.toLowerCase() }] },
+      });
+      await tx.user.update({
+        where: { id },
+        data: {
+          fullName: 'Deleted Account',
+          businessName: null,
+          shopAddress: null,
+          email: `deleted-${id}@deleted.fizco.invalid`,
+          phoneNumber: `deleted-${id}`,
+          // Not a bcrypt hash, so no password matches it
+          passwordHash: '',
+          avatarUrl: null,
+          plazaImageUrl: null,
+          fcmToken: null,
+          notificationsEnabled: false,
+          isVerified: false,
+          verificationStatus: 'UNVERIFIED',
+          cacRegistrationNumber: null,
+          teamOwnerId: null,
+          cacSharedByOwnerName: null,
+          cacSharedByBusinessName: null,
+          deletedAt: new Date(),
+        },
+        select: { id: true },
+      });
+      return requests.map((r) => r.id);
     });
   }
 

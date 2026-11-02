@@ -24,6 +24,7 @@ export class AuthRepository {
         cacSharedByOwnerName: true,
         cacSharedByBusinessName: true,
         avatarUrl: true,
+        plazaImageUrl: true,
         notificationsEnabled: true,
         lastSeenAt: true,
         createdAt: true,
@@ -50,6 +51,7 @@ export class AuthRepository {
         cacSharedByOwnerName: true,
         cacSharedByBusinessName: true,
         avatarUrl: true,
+        plazaImageUrl: true,
         notificationsEnabled: true,
         lastSeenAt: true,
         createdAt: true,
@@ -57,9 +59,10 @@ export class AuthRepository {
     });
   }
 
+  /** A deleted account isn't found, so its tokens stop working */
   async findById(id: string) {
     return this.prisma.user.findUnique({
-      where: { id },
+      where: { id, deletedAt: null },
       select: {
         id: true,
         fullName: true,
@@ -75,6 +78,7 @@ export class AuthRepository {
         cacSharedByOwnerName: true,
         cacSharedByBusinessName: true,
         avatarUrl: true,
+        plazaImageUrl: true,
         notificationsEnabled: true,
         lastSeenAt: true,
         createdAt: true,
@@ -139,6 +143,7 @@ export class AuthRepository {
         cacSharedByOwnerName: true,
         cacSharedByBusinessName: true,
         avatarUrl: true,
+        plazaImageUrl: true,
         notificationsEnabled: true,
         lastSeenAt: true,
         createdAt: true,

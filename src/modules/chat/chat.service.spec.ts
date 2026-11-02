@@ -1,7 +1,13 @@
 import { ChatService } from './chat.service';
 
 // A thread between buyer_1 (who created req_1) and vendor_1
-const thread = { id: 'thread_1', creatorId: 'buyer_1', vendorId: 'vendor_1' };
+const thread = {
+  id: 'thread_1',
+  creatorId: 'buyer_1',
+  vendorId: 'vendor_1',
+  creator: { id: 'buyer_1', deletedAt: null },
+  vendor: { id: 'vendor_1', deletedAt: null },
+};
 const request = { id: 'req_1', title: 'iPhone 13', requesterId: 'buyer_1' };
 
 describe('ChatService interest via tagged messages', () => {
@@ -68,6 +74,8 @@ describe('ChatService interest via tagged messages', () => {
       id: 'thread_2',
       creatorId: 'someone_else',
       vendorId: 'vendor_1',
+      creator: { id: 'someone_else', deletedAt: null },
+      vendor: { id: 'vendor_1', deletedAt: null },
     });
 
     await expect(
@@ -81,6 +89,18 @@ describe('ChatService interest via tagged messages', () => {
 
     expect(requestsService.assertCanShowInterest).not.toHaveBeenCalled();
     expect(requestsService.recordInterest).not.toHaveBeenCalled();
+  });
+
+  it('refuses a message to a deleted account', async () => {
+    chatRepository.findThreadByIdOrContext.mockResolvedValue({
+      ...thread,
+      creator: { id: 'buyer_1', deletedAt: new Date() },
+    });
+
+    await expect(
+      service.sendMessage('thread_1', 'vendor_1', 'Vendor One', { text: 'hello?' }),
+    ).rejects.toThrow('This vendor account has been deleted');
+    expect(chatRepository.createMessage).not.toHaveBeenCalled();
   });
 
   it('saves a video message as a video, labelled for previews and notifications', async () => {
@@ -125,6 +145,20 @@ describe('ChatService participant profile', () => {
     });
     await service.getThreadParticipantProfile('thread_1', 'vendor_1');
     expect(chatRepository.findParticipantProfile).toHaveBeenLastCalledWith('buyer_1');
+  });
+
+  it("leaves out a deleted account's placeholder email and phone number", async () => {
+    chatRepository.findParticipantProfile.mockResolvedValue({
+      id: 'vendor_1',
+      fullName: 'Deleted Account',
+      email: 'deleted-vendor_1@deleted.fizco.invalid',
+      phoneNumber: 'deleted-vendor_1',
+      deletedAt: new Date(),
+    });
+
+    await expect(service.getThreadParticipantProfile('thread_1', 'buyer_1')).resolves.toEqual(
+      expect.objectContaining({ fullName: 'Deleted Account', email: null, phoneNumber: null }),
+    );
   });
 
   it('refuses someone outside the conversation', async () => {

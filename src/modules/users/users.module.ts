@@ -4,9 +4,10 @@ import { UsersRepository } from './users.repository';
 import { UsersController } from './users.controller';
 import { ChatModule } from '../chat/chat.module';
 import { MediaModule } from '../media/media.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
-  imports: [ChatModule, MediaModule],
+  imports: [ChatModule, MediaModule, SubscriptionsModule],
   controllers: [UsersController],
   providers: [UsersService, UsersRepository],
   exports: [UsersService, UsersRepository],

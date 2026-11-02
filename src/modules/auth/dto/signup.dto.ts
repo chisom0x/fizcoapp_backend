@@ -35,6 +35,10 @@ export class SignupDto {
   @MinLength(6, { message: 'Password must be at least 6 characters' })
   password: string;
 
+  @IsNotEmpty({ message: 'Please confirm your password' })
+  @IsString()
+  confirmPassword: string;
+
   @IsNotEmpty()
   @IsString()
   @Length(6, 6, { message: 'OTP must be 6 digits' })

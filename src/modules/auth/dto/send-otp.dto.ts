@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsIn } from 'class-validator';
+import { IsNotEmpty, IsString, IsIn, IsOptional } from 'class-validator';
 
 export class SendOtpDto {
   @IsNotEmpty()
@@ -9,4 +9,9 @@ export class SendOtpDto {
   @IsString()
   @IsIn(['signup', 'password_reset'])
   purpose: string;
+
+  /** For a signup code: checked along with the email, so a taken number is caught before the code is sent */
+  @IsOptional()
+  @IsString()
+  phoneNumber?: string;
 }
