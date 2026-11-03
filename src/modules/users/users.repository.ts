@@ -54,7 +54,7 @@ export class UsersRepository {
     phoneNumber?: string;
     businessName?: string;
     shopAddress?: string | null;
-    avatarUrl?: string;
+    avatarUrl?: string | null;
     plazaImageUrl?: string;
   }) {
     return this.prisma.user.update({

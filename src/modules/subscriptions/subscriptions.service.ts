@@ -16,14 +16,16 @@ import { ConfirmCheckoutDto } from './dto/confirm-checkout.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EmailService } from '../email/email.service';
 
+export type PlanId = 'monthly' | 'yearly';
+
 export interface PlanConfig {
-  id: 'monthly' | 'quarterly' | 'yearly';
+  id: PlanId;
   name: string;
   amount: number;
   currency: string;
   formattedPrice: string;
   billingCadence: string;
-  interval: 'month' | 'quarter' | 'year';
+  interval: 'month' | 'year';
   intervalCount: number;
   features: string[];
 }
@@ -58,13 +60,10 @@ export class SubscriptionsService {
 
   getPlans(): { plans: PlanConfig[]; currency: string } {
     const monthlyPrice = Number(
-      this.configService.get<number>('SUBSCRIPTION_MONTHLY_PRICE') || 5000,
-    );
-    const quarterlyPrice = Number(
-      this.configService.get<number>('SUBSCRIPTION_QUARTERLY_PRICE') || 12000,
+      this.configService.get<number>('SUBSCRIPTION_MONTHLY_PRICE') || 4000,
     );
     const yearlyPrice = Number(
-      this.configService.get<number>('SUBSCRIPTION_YEARLY_PRICE') || 36000,
+      this.configService.get<number>('SUBSCRIPTION_YEARLY_PRICE') || 40000,
     );
 
     const formatCurrency = (val: number) =>
@@ -89,17 +88,6 @@ export class SubscriptionsService {
         features,
       },
       {
-        id: 'quarterly',
-        name: 'Quarterly',
-        amount: quarterlyPrice,
-        currency: this.currency,
-        formattedPrice: `${formatCurrency(quarterlyPrice)}/Quarter`,
-        billingCadence: 'Billed Quarterly',
-        interval: 'quarter',
-        intervalCount: 3,
-        features,
-      },
-      {
         id: 'yearly',
         name: 'Yearly',
         amount: yearlyPrice,
@@ -115,7 +103,7 @@ export class SubscriptionsService {
     return { plans, currency: this.currency };
   }
 
-  private getPlanConfig(planId: 'monthly' | 'quarterly' | 'yearly'): PlanConfig {
+  private getPlanConfig(planId: PlanId): PlanConfig {
     const { plans } = this.getPlans();
     const plan = plans.find((p) => p.id === planId);
     if (!plan) {
@@ -133,12 +121,6 @@ export class SubscriptionsService {
         'PLN_fizco_monthly'
       );
     }
-    if (planId === 'quarterly') {
-      return (
-        this.configService.get<string>('PAYSTACK_PLAN_QUARTERLY') ||
-        'PLN_fizco_quarterly'
-      );
-    }
     return (
       this.configService.get<string>('PAYSTACK_PLAN_YEARLY') ||
       'PLN_fizco_yearly'
@@ -154,7 +136,7 @@ export class SubscriptionsService {
   }
 
   private async getOrCreatePaystackPlan(
-    planId: 'monthly' | 'quarterly' | 'yearly',
+    planId: PlanId,
   ): Promise<string> {
     const configuredCode = this.getPlanEnvCode(planId);
     if (
@@ -173,7 +155,6 @@ export class SubscriptionsService {
       try {
         const intervalMap: Record<string, string> = {
           monthly: 'monthly',
-          quarterly: 'quarterly',
           yearly: 'annually', // Paystack uses 'annually'
         };
         const planConfig = this.getPlanConfig(planId);
@@ -333,7 +314,7 @@ export class SubscriptionsService {
       throw new BadRequestException('Transaction reference is required');
     }
 
-    let planId: 'monthly' | 'quarterly' | 'yearly' = dto.plan || 'monthly';
+    let planId: PlanId = dto.plan || 'monthly';
     let customerCode = user.paystackCustomerId || undefined;
     let subscriptionCode: string | undefined;
     let emailToken: string | undefined;
@@ -425,8 +406,6 @@ export class SubscriptionsService {
     const periodEnd = new Date(now);
     if (planId === 'monthly') {
       periodEnd.setMonth(periodEnd.getMonth() + 1);
-    } else if (planId === 'quarterly') {
-      periodEnd.setMonth(periodEnd.getMonth() + 3);
     } else {
       periodEnd.setFullYear(periodEnd.getFullYear() + 1);
     }
@@ -519,8 +498,6 @@ export class SubscriptionsService {
     const periodEnd = new Date(now);
     if (dto.plan === 'monthly') {
       periodEnd.setMonth(periodEnd.getMonth() + 1);
-    } else if (dto.plan === 'quarterly') {
-      periodEnd.setMonth(periodEnd.getMonth() + 3);
     } else {
       periodEnd.setFullYear(periodEnd.getFullYear() + 1);
     }
@@ -872,17 +849,19 @@ export class SubscriptionsService {
         const userId = data.metadata?.userId || data.metadata?.user_id;
 
         if (userId) {
-          const plan = data.metadata?.plan || 'monthly';
-          const planConfig = this.getPlanConfig(plan);
+          // A renewal can still name a plan that's no longer sold, e.g. quarterly
+          const plan: string = data.metadata?.plan || 'monthly';
+          const planConfig = this.getPlans().plans.find((p) => p.id === plan);
+          const planName = planConfig?.name ?? plan.charAt(0).toUpperCase() + plan.slice(1);
 
           await this.subscriptionsRepository.createTransaction({
             userId,
-            amount: Number(data.amount ? data.amount / 100 : planConfig.amount),
+            amount: Number(data.amount ? data.amount / 100 : planConfig?.amount ?? 0),
             currency: data.currency || this.currency,
             status: 'SUCCESS',
             paystackReference: reference,
             paymentMethod: data.channel ? `Paystack (${data.channel})` : 'Paystack',
-            description: `Payment for Fizco Premium (${planConfig.name} plan)`,
+            description: `Payment for Fizco Premium (${planName} plan)`,
           });
 
           await this.subscriptionsRepository.updateUserPlan(
@@ -919,7 +898,7 @@ export class SubscriptionsService {
         const status =
           sub.status === 'active' || sub.status === 'trialing' ? 'active' : sub.status;
         const plan = sub.metadata?.plan || existing?.plan || 'monthly';
-        const amount = Number(sub.amount ? sub.amount / 100 : 5000);
+        const amount = Number(sub.amount ? sub.amount / 100 : 4000);
 
         await this.subscriptionsRepository.upsertSubscription(userId, {
           userId,

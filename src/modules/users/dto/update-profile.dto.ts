@@ -29,9 +29,10 @@ export class UpdateProfileDto {
   @MaxLength(300)
   shopAddress?: string;
 
+  /** null deletes the profile picture, so the default avatar shows again */
   @IsOptional()
   @IsUrl(UPLOADED_PHOTO_URL, { message: 'Profile picture must be an uploaded photo' })
-  avatarUrl?: string;
+  avatarUrl?: string | null;
 
   @IsOptional()
   @IsUrl(UPLOADED_PHOTO_URL, { message: 'Plaza/office picture must be an uploaded photo' })

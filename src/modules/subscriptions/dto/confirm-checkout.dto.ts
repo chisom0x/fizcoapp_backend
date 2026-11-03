@@ -10,6 +10,6 @@ export class ConfirmCheckoutDto {
   reference?: string;
 
   @IsOptional()
-  @IsIn(['monthly', 'quarterly', 'yearly'])
-  plan?: 'monthly' | 'quarterly' | 'yearly';
+  @IsIn(['monthly', 'yearly'])
+  plan?: 'monthly' | 'yearly';
 }

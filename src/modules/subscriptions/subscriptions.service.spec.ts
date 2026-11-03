@@ -31,7 +31,7 @@ describe('SubscriptionsService', () => {
         paystackEmailToken: 'tok_123',
         plan: 'monthly',
         status: 'active',
-        amount: 5000,
+        amount: 4000,
         currency: 'NGN',
         interval: 'month',
         currentPeriodStart: new Date(),
@@ -43,7 +43,7 @@ describe('SubscriptionsService', () => {
         userId: 'usr_1',
         plan: 'monthly',
         status: 'active',
-        amount: 5000,
+        amount: 4000,
         currency: 'NGN',
       }),
       findSubscriptionByPaystackCode: jest.fn().mockResolvedValue({
@@ -51,7 +51,7 @@ describe('SubscriptionsService', () => {
         userId: 'usr_1',
         plan: 'monthly',
         status: 'active',
-        amount: 5000,
+        amount: 4000,
         currency: 'NGN',
       }),
       findSubscriptionsDueForReminder: jest.fn().mockResolvedValue([
@@ -59,7 +59,7 @@ describe('SubscriptionsService', () => {
           id: 'sub_1',
           userId: 'usr_1',
           plan: 'monthly',
-          amount: 5000,
+          amount: 4000,
           currentPeriodEnd: new Date(Date.now() + 3 * 86400000),
           user: {
             id: 'usr_1',
@@ -70,7 +70,7 @@ describe('SubscriptionsService', () => {
       ]),
       createTransaction: jest.fn().mockResolvedValue({
         id: 'tx_1',
-        amount: 5000,
+        amount: 4000,
         currency: 'NGN',
         status: 'SUCCESS',
         createdAt: new Date(),
@@ -80,7 +80,7 @@ describe('SubscriptionsService', () => {
         userId: 'usr_1',
         plan: 'monthly',
         status: 'active',
-        amount: 5000,
+        amount: 4000,
         currency: 'NGN',
         currentPeriodStart: new Date(),
         currentPeriodEnd: new Date(Date.now() + 30 * 86400000),
@@ -114,9 +114,8 @@ describe('SubscriptionsService', () => {
       get: jest.fn((key: string) => {
         if (key === 'PAYSTACK_SECRET_KEY') return 'test_secret_key';
         if (key === 'SUBSCRIPTION_CURRENCY') return 'NGN';
-        if (key === 'SUBSCRIPTION_MONTHLY_PRICE') return 5000;
-        if (key === 'SUBSCRIPTION_QUARTERLY_PRICE') return 12000;
-        if (key === 'SUBSCRIPTION_YEARLY_PRICE') return 36000;
+        if (key === 'SUBSCRIPTION_MONTHLY_PRICE') return 4000;
+        if (key === 'SUBSCRIPTION_YEARLY_PRICE') return 40000;
         return null;
       }),
     };
@@ -135,14 +134,14 @@ describe('SubscriptionsService', () => {
   });
 
   describe('getPlans', () => {
-    it('should return exactly 3 pricing plans (monthly, quarterly, yearly)', () => {
+    it('should return exactly 2 pricing plans (monthly, yearly)', () => {
       const { plans, currency } = service.getPlans();
       expect(currency).toBe('NGN');
-      expect(plans).toHaveLength(3);
-      expect(plans.map((p) => p.id)).toEqual(['monthly', 'quarterly', 'yearly']);
-      expect(plans[0].amount).toBe(5000);
-      expect(plans[1].amount).toBe(12000);
-      expect(plans[2].amount).toBe(36000);
+      expect(plans.map((p) => p.id)).toEqual(['monthly', 'yearly']);
+      expect(plans[0].amount).toBe(4000);
+      expect(plans[0].formattedPrice).toBe('₦4,000/Month');
+      expect(plans[1].amount).toBe(40000);
+      expect(plans[1].formattedPrice).toBe('₦40,000/Year');
     });
   });
 
@@ -156,7 +155,7 @@ describe('SubscriptionsService', () => {
       expect(subscriptionsRepository.createTransaction).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: 'usr_1',
-          amount: 5000,
+          amount: 4000,
           status: 'PENDING',
         }),
       );
@@ -183,7 +182,7 @@ describe('SubscriptionsService', () => {
         expect.objectContaining({
           plan: 'monthly',
           status: 'active',
-          amount: 5000,
+          amount: 4000,
         }),
       );
       expect(subscriptionsRepository.updateUserPlan).toHaveBeenCalledWith(
@@ -230,7 +229,7 @@ describe('SubscriptionsService', () => {
         expect.objectContaining({
           plan: 'monthly',
           status: 'active',
-          amount: 5000,
+          amount: 4000,
         }),
       );
       expect(notificationsService.notifyUser).toHaveBeenCalledWith(
@@ -296,6 +295,26 @@ describe('SubscriptionsService', () => {
         expect.any(Date),
       );
       expect(subscriptionsRepository.updateUserPlan).toHaveBeenCalledWith('usr_1', 'Free');
+    });
+
+    it('should record a renewal of a plan no longer sold instead of failing', async () => {
+      await service.handleWebhook({
+        event: 'charge.success',
+        data: {
+          reference: 'ref_q',
+          amount: 1200000,
+          customer: { customer_code: 'CUS_1' },
+          metadata: { userId: 'usr_1', plan: 'quarterly' },
+        },
+      });
+
+      expect(subscriptionsRepository.createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'usr_1',
+          amount: 12000,
+          description: 'Payment for Fizco Premium (Quarterly plan)',
+        }),
+      );
     });
 
     it('should dispatch renewal reminder via notifications and email', async () => {
