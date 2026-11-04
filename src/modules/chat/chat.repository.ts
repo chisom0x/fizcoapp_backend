@@ -442,6 +442,7 @@ export class ChatRepository {
         phoneNumber: true,
         avatarUrl: true,
         plazaImageUrl: true,
+        officeImageUrl: true,
         isVerified: true,
         deletedAt: true,
       },

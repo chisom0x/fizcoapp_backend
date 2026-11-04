@@ -24,6 +24,7 @@ export class UsersRepository {
         cacSharedByBusinessName: true,
         avatarUrl: true,
         plazaImageUrl: true,
+        officeImageUrl: true,
         notificationsEnabled: true,
         lastSeenAt: true,
         createdAt: true,
@@ -56,6 +57,7 @@ export class UsersRepository {
     shopAddress?: string | null;
     avatarUrl?: string | null;
     plazaImageUrl?: string;
+    officeImageUrl?: string;
   }) {
     return this.prisma.user.update({
       where: { id },
@@ -73,6 +75,7 @@ export class UsersRepository {
         cacRegistrationNumber: true,
         avatarUrl: true,
         plazaImageUrl: true,
+        officeImageUrl: true,
         notificationsEnabled: true,
         lastSeenAt: true,
         createdAt: true,
@@ -212,6 +215,7 @@ export class UsersRepository {
           passwordHash: '',
           avatarUrl: null,
           plazaImageUrl: null,
+          officeImageUrl: null,
           fcmToken: null,
           notificationsEnabled: false,
           isVerified: false,

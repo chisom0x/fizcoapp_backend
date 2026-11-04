@@ -40,8 +40,9 @@ model User {
   phoneNumber           String              @unique
   passwordHash          String
   avatarUrl             String?
-  // Photo of the vendor's plaza or office, shown on their profile to other vendors
+  // Photos of the vendor's plaza and of their office, shown on their profile to other vendors
   plazaImageUrl         String?
+  officeImageUrl        String?
   subscriptionPlan      String              @default("Free")
   bachsCustomerId       String?
   paystackCustomerId    String?

@@ -35,6 +35,10 @@ export class UpdateProfileDto {
   avatarUrl?: string | null;
 
   @IsOptional()
-  @IsUrl(UPLOADED_PHOTO_URL, { message: 'Plaza/office picture must be an uploaded photo' })
+  @IsUrl(UPLOADED_PHOTO_URL, { message: 'Plaza picture must be an uploaded photo' })
   plazaImageUrl?: string;
+
+  @IsOptional()
+  @IsUrl(UPLOADED_PHOTO_URL, { message: 'Office picture must be an uploaded photo' })
+  officeImageUrl?: string;
 }
