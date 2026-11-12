@@ -207,9 +207,12 @@ describe('UsersService CAC Verification', () => {
     beforeEach(async () => {
       usersRepository.findWithPassword = jest.fn().mockResolvedValue({
         id: 'usr_1',
+        fullName: 'Jane Doe',
         passwordHash: await bcrypt.hash('secret123', 4),
       });
-      usersRepository.deleteAccount = jest.fn().mockResolvedValue(['req_1', 'req_2']);
+      usersRepository.deleteAccount = jest
+        .fn()
+        .mockResolvedValue({ removedRequestIds: ['req_1', 'req_2'], formerTeamMemberIds: [] });
       chatGateway.broadcastDeletedRequest = jest.fn();
     });
 
@@ -228,6 +231,42 @@ describe('UsersService CAC Verification', () => {
       expect(usersRepository.deleteAccount).toHaveBeenCalledWith('usr_1');
       expect(chatGateway.broadcastDeletedRequest).toHaveBeenCalledWith('req_1');
       expect(chatGateway.broadcastDeletedRequest).toHaveBeenCalledWith('req_2');
+    });
+
+    it('notifies team members sharing its CAC and sends them back to verification', async () => {
+      (usersRepository.deleteAccount as jest.Mock).mockResolvedValue({
+        removedRequestIds: [],
+        formerTeamMemberIds: ['usr_2'],
+      });
+      const roomEmit = jest.fn();
+      (chatGateway.server!.to as jest.Mock).mockReturnValue({ emit: roomEmit });
+
+      await service.deleteAccount('usr_1', { password: 'secret123' });
+
+      expect(chatGateway.server!.to).toHaveBeenCalledWith('user_usr_2');
+      expect(roomEmit).toHaveBeenCalledWith('user_unverified', {
+        userId: 'usr_2',
+        isVerified: false,
+        isSharingCac: false,
+      });
+      expect(notificationsService.notifyUser).toHaveBeenCalledWith(
+        'usr_2',
+        'CAC Verification Removed',
+        expect.stringContaining('Jane Doe deleted their account'),
+        { type: 'TEAM_MEMBER_REMOVED', teamOwnerId: 'usr_1' },
+      );
+    });
+
+    it('still reports the delete when notifying a team member fails', async () => {
+      (usersRepository.deleteAccount as jest.Mock).mockResolvedValue({
+        removedRequestIds: [],
+        formerTeamMemberIds: ['usr_2'],
+      });
+      (notificationsService.notifyUser as jest.Mock).mockRejectedValue(new Error('db down'));
+
+      await expect(service.deleteAccount('usr_1', { password: 'secret123' })).resolves.toEqual({
+        deleted: true,
+      });
     });
 
     it('cancels a paid subscription right away before deleting', async () => {

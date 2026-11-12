@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
   UnauthorizedException,
@@ -22,6 +23,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly usersRepository: UsersRepository,
     private readonly chatGateway: ChatGateway,
@@ -358,9 +361,30 @@ export class UsersService {
       if (!(err instanceof BadRequestException)) throw err;
     }
 
-    const removedRequestIds = await this.usersRepository.deleteAccount(userId);
+    const { removedRequestIds, formerTeamMemberIds } =
+      await this.usersRepository.deleteAccount(userId);
     for (const requestId of removedRequestIds) {
       this.chatGateway.broadcastDeletedRequest(requestId);
+    }
+
+    // The members verified through this account's CAC are back to verifying their own business.
+    // The account is already gone, so a failed notification is logged rather than failing the delete
+    for (const memberId of formerTeamMemberIds) {
+      this.chatGateway.server?.to(`user_${memberId}`).emit('user_unverified', {
+        userId: memberId,
+        isVerified: false,
+        isSharingCac: false,
+      });
+      await this.notificationsService
+        .notifyUser(
+          memberId,
+          'CAC Verification Removed',
+          `${user.fullName} deleted their account, so you can no longer use their CAC verification. Verify your business to keep using Fizco.`,
+          { type: 'TEAM_MEMBER_REMOVED', teamOwnerId: userId },
+        )
+        .catch((err) =>
+          this.logger.error(`Failed to notify ${memberId} of lost team CAC: ${err}`),
+        );
     }
 
     return { deleted: true };

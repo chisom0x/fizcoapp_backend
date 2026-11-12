@@ -44,6 +44,7 @@ export class UsersRepository {
       where: { id },
       select: {
         id: true,
+        fullName: true,
         passwordHash: true,
       },
     });
@@ -182,9 +183,13 @@ export class UsersRepository {
    * chat it was in. Its name becomes "Deleted Account" wherever it was shown, the email and phone
    * number are freed for a new signup, and its open requests, inventory, notifications and team
    * invites go. Invites sent to its email go too, so signing up again with that email needs a new
-   * CAC verification rather than rejoining a team. Returns the ids of the requests taken down
+   * CAC verification rather than rejoining a team. Members using its CAC verification lose it, as
+   * the row is kept and the relation's SetNull never fires. Returns the ids of the requests taken
+   * down and of those members
    */
-  async deleteAccount(id: string): Promise<string[]> {
+  async deleteAccount(
+    id: string,
+  ): Promise<{ removedRequestIds: string[]; formerTeamMemberIds: string[] }> {
     return this.prisma.$transaction(async (tx) => {
       const { email } = await tx.user.findUniqueOrThrow({
         where: { id },
@@ -202,6 +207,21 @@ export class UsersRepository {
       await tx.notification.deleteMany({ where: { userId: id } });
       await tx.teamInvite.deleteMany({
         where: { OR: [{ inviterId: id }, { inviteeEmail: email.toLowerCase() }] },
+      });
+      const teamMembers = await tx.user.findMany({
+        where: { teamOwnerId: id },
+        select: { id: true },
+      });
+      await tx.user.updateMany({
+        where: { teamOwnerId: id },
+        data: {
+          isVerified: false,
+          verificationStatus: 'UNVERIFIED',
+          teamOwnerId: null,
+          cacSharedByOwnerName: null,
+          cacSharedByBusinessName: null,
+          cacRegistrationNumber: null,
+        },
       });
       await tx.user.update({
         where: { id },
@@ -228,7 +248,10 @@ export class UsersRepository {
         },
         select: { id: true },
       });
-      return requests.map((r) => r.id);
+      return {
+        removedRequestIds: requests.map((r) => r.id),
+        formerTeamMemberIds: teamMembers.map((m) => m.id),
+      };
     });
   }
 
