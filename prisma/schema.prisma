@@ -80,6 +80,7 @@ model User {
 
   @@index([email])
   @@index([phoneNumber])
+  @@index([createdAt])
 }
 
 model OtpVerification {
@@ -125,6 +126,8 @@ model Request {
 
   @@index([requesterId, createdAt])
   @@index([status, createdAt])
+  @@index([createdAt])
+  @@index([fulfilledByVendorId])
 }
 
 model RequestInterest {
@@ -138,6 +141,7 @@ model RequestInterest {
   @@unique([requestId, vendorId])
   @@index([requestId])
   @@index([vendorId])
+  @@index([createdAt])
 }
 
 model ChatThread {
@@ -159,6 +163,7 @@ model ChatThread {
   @@index([creatorId, updatedAt])
   @@index([vendorId, updatedAt])
   @@index([requestId])
+  @@index([createdAt])
 }
 
 model Message {
@@ -187,6 +192,8 @@ model Message {
 
   @@index([threadId, createdAt])
   @@index([senderId])
+  @@index([createdAt])
+  @@index([taggedRequestId])
 }
 
 model InventoryItem {
@@ -211,6 +218,7 @@ model InventoryItem {
   @@index([userId, createdAt])
   @@index([brand, model])
   @@index([title])
+  @@index([createdAt])
 }
 
 model Notification {
@@ -225,6 +233,7 @@ model Notification {
 
   @@index([userId, isRead])
   @@index([userId, createdAt])
+  @@index([createdAt])
 }
 
 model Feedback {
@@ -290,6 +299,7 @@ model SubscriptionTransaction {
   @@index([userId])
   @@index([subscriptionId])
   @@index([status, createdAt])
+  @@index([createdAt])
 }
 
 model BlockedVendor {
@@ -304,4 +314,20 @@ model BlockedVendor {
   @@unique([userId, vendorId])
   @@index([userId])
   @@index([vendorId])
+}
+
+// Fizco staff who sign in to the admin panel. Accounts are created by a seed script, never by signup
+model Admin {
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  fullName            String
+  passwordHash        String
+  // Sessions issued before this are rejected, so a password reset signs every device out
+  passwordChangedAt   DateTime  @default(now())
+  // SHA-256 of the emailed reset token; the token itself is never stored
+  resetTokenHash      String?   @unique
+  resetTokenExpiresAt DateTime?
+  lastLoginAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }

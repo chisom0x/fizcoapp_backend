@@ -14,6 +14,7 @@ import { RequestsModule } from './modules/requests/requests.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { AdminModule } from './modules/admin/admin.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { SubscriptionsModule } from './modules/subscriptions/subscriptions.modul
     ChatModule,
     FeedbackModule,
     SubscriptionsModule,
+    AdminModule,
   ],
 })
 export class AppModule {}

@@ -353,6 +353,15 @@ export class UsersService {
       throw new UnauthorizedException('Password is incorrect');
     }
 
+    await this.removeAccount(userId, user.fullName);
+    return { deleted: true };
+  }
+
+  /**
+   * Deletes the account without asking for its password: the app calls it once the owner has
+   * confirmed theirs, the admin panel calls it directly
+   */
+  async removeAccount(userId: string, fullName: string) {
     // A paid plan would otherwise keep renewing on the card of an account that's gone
     try {
       await this.subscriptionsService.cancelSubscription(userId, { cancelAtPeriodEnd: false });
@@ -379,15 +388,13 @@ export class UsersService {
         .notifyUser(
           memberId,
           'CAC Verification Removed',
-          `${user.fullName} deleted their account, so you can no longer use their CAC verification. Verify your business to keep using Fizco.`,
+          `${fullName} deleted their account, so you can no longer use their CAC verification. Verify your business to keep using Fizco.`,
           { type: 'TEAM_MEMBER_REMOVED', teamOwnerId: userId },
         )
         .catch((err) =>
           this.logger.error(`Failed to notify ${memberId} of lost team CAC: ${err}`),
         );
     }
-
-    return { deleted: true };
   }
 
   async blockAndReportVendor(userId: string, dto: BlockAndReportVendorDto) {

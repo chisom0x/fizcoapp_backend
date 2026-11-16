@@ -282,4 +282,50 @@ export class EmailService {
       return true;
     }
   }
+
+  /** Sends a Fizco admin the link that lets them set a new password */
+  async sendAdminPasswordResetEmail(toEmail: string, name: string, resetUrl: string): Promise<boolean> {
+    const escape = (v: string) =>
+      v.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+    const htmlBody = `
+<!DOCTYPE html>
+<html lang="en">
+<body style="margin:0;padding:40px 16px;background:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0f172a;">
+  <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:32px;">
+    <div style="font-size:20px;font-weight:800;color:#1e3a8a;margin-bottom:24px;">Fizco Admin</div>
+    <p style="font-size:14px;line-height:1.6;margin:0 0 16px;">Hi ${escape(name)},</p>
+    <p style="font-size:14px;line-height:1.6;margin:0 0 24px;">Someone asked to reset the password of your Fizco admin account. The link below works once, for 30 minutes.</p>
+    <a href="${escape(resetUrl)}" style="display:inline-block;background:#1e3a8a;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 20px;border-radius:8px;">Reset password</a>
+    <p style="font-size:12px;line-height:1.6;color:#64748b;margin:24px 0 0;">If you didn't ask for this, ignore this email; your password stays the same.</p>
+  </div>
+</body>
+</html>`;
+    try {
+      const response = await axios.post(
+        this.zeptoUrl,
+        {
+          from: { address: this.fromAddress, name: this.fromName },
+          to: [{ email_address: { address: toEmail, name } }],
+          subject: 'Reset your Fizco admin password',
+          htmlbody: htmlBody,
+        },
+        {
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            Authorization: this.zeptoToken,
+          },
+          timeout: 10000,
+        },
+      );
+      return response.status >= 200 && response.status < 300;
+    } catch (error) {
+      const errorMsg = axios.isAxiosError(error)
+        ? JSON.stringify(error.response?.data || error.message)
+        : String(error);
+      // The link is a credential, so unlike OTPs it is never written to the log
+      this.logger.error(`Failed to send admin reset email to ${toEmail} via ZeptoMail: ${errorMsg}`);
+      return false;
+    }
+  }
 }

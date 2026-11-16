@@ -515,6 +515,19 @@ export class RequestsService {
       throw new ForbiddenException('Only the requester can delete this request');
     }
 
+    return this.takeDown(requestId, requesterId);
+  }
+
+  /** Deletes a request whoever posted it; for the admin panel */
+  async removeAsAdmin(requestId: string) {
+    const request = await this.requestsRepository.findById(requestId);
+    if (!request || request.isDeleted) {
+      throw new NotFoundException('Request not found');
+    }
+    return this.takeDown(requestId, request.requesterId);
+  }
+
+  private async takeDown(requestId: string, requesterId: string) {
     await this.requestsRepository.delete(requestId, requesterId);
 
     // Broadcast deletion in real-time to all connected mobile clients
