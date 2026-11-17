@@ -13,6 +13,8 @@ export class AuthRepository {
         fullName: true,
         businessName: true,
         shopAddress: true,
+        marketId: true,
+        market: { select: { id: true, name: true } },
         email: true,
         phoneNumber: true,
         passwordHash: true,
@@ -41,6 +43,8 @@ export class AuthRepository {
         fullName: true,
         businessName: true,
         shopAddress: true,
+        marketId: true,
+        market: { select: { id: true, name: true } },
         email: true,
         phoneNumber: true,
         passwordHash: true,
@@ -70,6 +74,8 @@ export class AuthRepository {
         fullName: true,
         businessName: true,
         shopAddress: true,
+        marketId: true,
+        market: { select: { id: true, name: true } },
         email: true,
         phoneNumber: true,
         subscriptionPlan: true,
@@ -93,6 +99,7 @@ export class AuthRepository {
     fullName: string;
     businessName?: string;
     shopAddress?: string;
+    marketId?: string;
     email: string;
     phoneNumber: string;
     passwordHash: string;
@@ -121,6 +128,7 @@ export class AuthRepository {
         fullName: data.fullName,
         businessName: data.businessName,
         shopAddress: data.shopAddress,
+        marketId: data.marketId,
         email: cleanEmail,
         phoneNumber: data.phoneNumber,
         passwordHash: data.passwordHash,
@@ -136,6 +144,8 @@ export class AuthRepository {
         fullName: true,
         businessName: true,
         shopAddress: true,
+        marketId: true,
+        market: { select: { id: true, name: true } },
         email: true,
         phoneNumber: true,
         subscriptionPlan: true,

@@ -5,9 +5,10 @@ import { UsersController } from './users.controller';
 import { ChatModule } from '../chat/chat.module';
 import { MediaModule } from '../media/media.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { MarketsModule } from '../markets/markets.module';
 
 @Module({
-  imports: [ChatModule, MediaModule, SubscriptionsModule],
+  imports: [ChatModule, MediaModule, SubscriptionsModule, MarketsModule],
   controllers: [UsersController],
   providers: [UsersService, UsersRepository],
   exports: [UsersService, UsersRepository],

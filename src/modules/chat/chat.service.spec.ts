@@ -122,6 +122,7 @@ describe('ChatService interest via tagged messages', () => {
       'Vendor One',
       '🎥 Sent a video',
       expect.anything(),
+      { fromUserId: 'vendor_1' },
     );
   });
 });

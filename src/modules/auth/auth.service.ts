@@ -18,6 +18,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 
 import { NotificationsService } from '../notifications/notifications.service';
+import { MarketsService } from '../markets/markets.service';
 
 @Injectable()
 export class AuthService {
@@ -32,6 +33,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly notificationsService: NotificationsService,
+    private readonly marketsService: MarketsService,
   ) {
     this.jwtAccessSecret =
       this.configService.get<string>('JWT_ACCESS_SECRET') ||
@@ -147,6 +149,8 @@ export class AuthService {
       throw new ConflictException('An account with this phone number already exists');
     }
 
+    if (dto.marketId) await this.marketsService.assertExists(dto.marketId);
+
     // 4. Hash password
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(dto.password, saltRounds);
@@ -156,6 +160,7 @@ export class AuthService {
       fullName: dto.fullName,
       businessName: dto.businessName,
       shopAddress: dto.shopAddress?.trim() || undefined,
+      marketId: dto.marketId,
       email: dto.email,
       phoneNumber: dto.phoneNumber,
       passwordHash,

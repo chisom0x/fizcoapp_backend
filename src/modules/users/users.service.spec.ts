@@ -8,6 +8,7 @@ import { AiService } from '../ai/ai.service';
 import { MediaService } from '../media/media.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { MarketsService } from '../markets/markets.service';
 
 describe('UsersService CAC Verification', () => {
   let service: UsersService;
@@ -73,6 +74,7 @@ describe('UsersService CAC Verification', () => {
         { provide: MediaService, useValue: mediaService },
         { provide: NotificationsService, useValue: notificationsService },
         { provide: SubscriptionsService, useValue: subscriptionsService },
+        { provide: MarketsService, useValue: {} },
       ],
     }).compile();
 

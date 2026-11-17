@@ -201,12 +201,13 @@ export class ChatService {
           ? '📷 Sent a photo'
           : dto.text || 'Sent an attachment';
       this.notificationsService
-        .notifyUser(recipientId, senderName, notifText, {
-          type: 'NEW_MESSAGE',
-          chatThreadId: resolvedThreadId,
-          senderId,
+        .notifyUser(
+          recipientId,
           senderName,
-        })
+          notifText,
+          { type: 'NEW_MESSAGE', chatThreadId: resolvedThreadId, senderId, senderName },
+          { fromUserId: senderId },
+        )
         .catch(() => {});
     } else {
       // Recipient is already in thread viewing the conversation. The reply already says isRead,

@@ -6,6 +6,7 @@ import {
   MinLength,
   Length,
   MaxLength,
+  IsUUID,
 } from 'class-validator';
 
 export class SignupDto {
@@ -21,6 +22,11 @@ export class SignupDto {
   @IsString()
   @MaxLength(300)
   shopAddress?: string;
+
+  /** From GET /markets. Optional only so app builds from before markets can still sign up */
+  @IsOptional()
+  @IsUUID('4', { message: 'Please choose a valid market' })
+  marketId?: string;
 
   @IsNotEmpty()
   @IsEmail()

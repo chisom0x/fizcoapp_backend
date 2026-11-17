@@ -352,6 +352,7 @@ export class AdminRepository {
         fullName: true,
         businessName: true,
         shopAddress: true,
+        market: { select: { id: true, name: true } },
         email: true,
         phoneNumber: true,
         avatarUrl: true,

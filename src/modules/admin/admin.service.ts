@@ -6,6 +6,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { UsersService } from '../users/users.service';
 import { RequestsService } from '../requests/requests.service';
+import { MarketsService } from '../markets/markets.service';
 import { AdminRepository, SeriesMetric } from './admin.repository';
 import {
   fillSeries,
@@ -49,6 +50,7 @@ export class AdminService {
     private readonly repo: AdminRepository,
     private readonly usersService: UsersService,
     private readonly requestsService: RequestsService,
+    private readonly marketsService: MarketsService,
   ) {}
 
   private async seriesFor(metrics: SeriesMetric[], r: TimeRange) {
@@ -186,7 +188,11 @@ export class AdminService {
       ...(dto.phoneNumber !== undefined
         ? { phoneNumber: dto.phoneNumber }
         : {}),
+      ...(dto.marketId !== undefined
+        ? { market: { connect: { id: dto.marketId } } }
+        : {}),
     };
+    if (dto.marketId) await this.marketsService.assertExists(dto.marketId);
     try {
       await this.repo.updateUser(id, data);
     } catch (err) {

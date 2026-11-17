@@ -105,6 +105,16 @@ export class NotificationsRepository {
     };
   }
 
+  /** Whether two users are in the same market; two users with no market count as the same */
+  async inSameMarket(userId: string, otherUserId: string): Promise<boolean> {
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: [userId, otherUserId] } },
+      select: { marketId: true },
+    });
+    if (users.length < 2) return userId === otherUserId;
+    return users[0].marketId === users[1].marketId;
+  }
+
   async updateNotificationPreferences(userId: string, enabled: boolean) {
     return this.prisma.user.update({
       where: { id: userId },
@@ -118,11 +128,13 @@ export class NotificationsRepository {
    * least one phrasing of the request, compared as whole tokens of the item's
    * title, model and brand. Vendors in a block relationship with the requester are
    * skipped, mirroring the open-requests feed. Each vendor comes back once, with their
-   * cheapest matching item (priced items before unpriced ones).
+   * cheapest matching item (priced items before unpriced ones). Only vendors in the
+   * requester's market (null: those with no market yet) are considered.
    */
   async findVendorsWithMatchingInventory(
     brand: string,
     excludeUserId: string,
+    marketId: string | null,
     keywordSets: string[][],
   ) {
     const phrasings = keywordSets.filter((set) => set.length > 0);
@@ -132,6 +144,7 @@ export class NotificationsRepository {
       where: {
         userId: { not: excludeUserId },
         user: {
+          marketId,
           blocksReceived: { none: { userId: excludeUserId } },
           blocksInitiated: { none: { vendorId: excludeUserId } },
         },

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { UsersModule } from '../users/users.module';
 import { RequestsModule } from '../requests/requests.module';
+import { MarketsModule } from '../markets/markets.module';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminAuthService } from './admin-auth.service';
 import { AdminController } from './admin.controller';
@@ -11,7 +12,7 @@ import { AdminService } from './admin.service';
 
 /** The admin panel's API, under /v1/admin. Nothing in the mobile app's API depends on it */
 @Module({
-  imports: [JwtModule.register({}), UsersModule, RequestsModule],
+  imports: [JwtModule.register({}), UsersModule, RequestsModule, MarketsModule],
   controllers: [AdminAuthController, AdminController],
   providers: [AdminAuthService, AdminGuard, AdminRepository, AdminService],
 })

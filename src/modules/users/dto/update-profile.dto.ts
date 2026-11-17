@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsEmail, MaxLength, IsUrl } from 'class-validator';
+import { IsOptional, IsString, IsEmail, MaxLength, IsUrl, IsUUID } from 'class-validator';
 
 /** Photos are uploaded by the app to Cloudinary first; other vendors load them, so nothing else is accepted */
 const UPLOADED_PHOTO_URL = {
@@ -28,6 +28,11 @@ export class UpdateProfileDto {
   @IsString()
   @MaxLength(300)
   shopAddress?: string;
+
+  /** A user is in one market at a time; setting it replaces the old one */
+  @IsOptional()
+  @IsUUID('4', { message: 'Please choose a valid market' })
+  marketId?: string;
 
   /** null deletes the profile picture, so the default avatar shows again */
   @IsOptional()

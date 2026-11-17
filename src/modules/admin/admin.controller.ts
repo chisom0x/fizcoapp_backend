@@ -6,14 +6,17 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import { AdminGuard } from './admin.guard';
 import { AdminService } from './admin.service';
+import { MarketsService } from '../markets/markets.service';
 import {
   AdminListQueryDto,
   AdminUpdateUserDto,
+  MarketNameDto,
   RangeQueryDto,
   RequestsQueryDto,
   SubscriptionsQueryDto,
@@ -26,7 +29,10 @@ const Id = () => Param('id', new ParseUUIDPipe());
 @Controller('admin')
 @UseGuards(AdminGuard)
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly marketsService: MarketsService,
+  ) {}
 
   @Get('dashboard')
   dashboard(@Query() q: RangeQueryDto) {
@@ -91,6 +97,26 @@ export class AdminController {
   @Delete('requests/:id')
   deleteRequest(@Id() id: string) {
     return this.adminService.deleteRequest(id);
+  }
+
+  @Get('markets')
+  listMarkets() {
+    return this.marketsService.listForAdmin();
+  }
+
+  @Post('markets')
+  createMarket(@Body() dto: MarketNameDto) {
+    return this.marketsService.create(dto.name);
+  }
+
+  @Patch('markets/:id')
+  renameMarket(@Id() id: string, @Body() dto: MarketNameDto) {
+    return this.marketsService.rename(id, dto.name);
+  }
+
+  @Delete('markets/:id')
+  deleteMarket(@Id() id: string) {
+    return this.marketsService.remove(id);
   }
 
   @Get('finance')

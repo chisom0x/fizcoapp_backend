@@ -13,6 +13,8 @@ export class UsersRepository {
         fullName: true,
         businessName: true,
         shopAddress: true,
+        marketId: true,
+        market: { select: { id: true, name: true } },
         email: true,
         phoneNumber: true,
         subscriptionPlan: true,
@@ -56,6 +58,7 @@ export class UsersRepository {
     phoneNumber?: string;
     businessName?: string;
     shopAddress?: string | null;
+    marketId?: string;
     avatarUrl?: string | null;
     plazaImageUrl?: string;
     officeImageUrl?: string;
@@ -68,6 +71,8 @@ export class UsersRepository {
         fullName: true,
         businessName: true,
         shopAddress: true,
+        marketId: true,
+        market: { select: { id: true, name: true } },
         email: true,
         phoneNumber: true,
         subscriptionPlan: true,
@@ -229,6 +234,8 @@ export class UsersRepository {
           fullName: 'Deleted Account',
           businessName: null,
           shopAddress: null,
+          // Frees the market so an emptied one can be deleted from the admin panel
+          marketId: null,
           email: `deleted-${id}@deleted.fizco.invalid`,
           phoneNumber: `deleted-${id}`,
           // Not a bcrypt hash, so no password matches it

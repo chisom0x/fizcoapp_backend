@@ -120,12 +120,24 @@ export class NotificationsService implements OnModuleInit {
     }
   }
 
+  /**
+   * Stores, pushes and emits a notification. When it's caused by another user ([fromUserId]),
+   * it's dropped unless both are in the same market; returns null then
+   */
   async notifyUser(
     userId: string,
     title: string,
     body: string,
     data?: Record<string, any>,
+    options?: { fromUserId?: string },
   ) {
+    if (
+      options?.fromUserId &&
+      !(await this.notificationsRepository.inSameMarket(userId, options.fromUserId))
+    ) {
+      return null;
+    }
+
     // 1. Create in-app notification in DB
     const created = await this.notificationsRepository.create({
       userId,

@@ -242,9 +242,13 @@ describe('RequestsService vendor matching', () => {
     Object.assign(requestsRepository, {
       getUserSubscriptionPlan: jest.fn().mockResolvedValue('Premium'),
       countUserInterests: jest.fn().mockResolvedValue(0),
-      findById: jest
-        .fn()
-        .mockResolvedValue({ id: 'req_1', title: 'iPhone 13', requesterId: 'buyer_1' }),
+      getUserMarketId: jest.fn().mockResolvedValue('market_a'),
+      findById: jest.fn().mockResolvedValue({
+        id: 'req_1',
+        title: 'iPhone 13',
+        requesterId: 'buyer_1',
+        requester: { marketId: 'market_a' },
+      }),
       addInterest,
       getOrCreateChatThread: jest.fn().mockResolvedValue({ id: 'thread_1' }),
     });
@@ -256,6 +260,90 @@ describe('RequestsService vendor matching', () => {
     expect(addInterest).not.toHaveBeenCalled();
     expect(server.to).not.toHaveBeenCalled();
     expect(prisma.notification.create).not.toHaveBeenCalled();
+  });
+
+  describe('markets', () => {
+    it('refuses a vendor from another market opening a chat on the request', async () => {
+      const getOrCreateChatThread = jest.fn();
+      Object.assign(requestsRepository, {
+        getUserSubscriptionPlan: jest.fn().mockResolvedValue('Premium'),
+        countUserInterests: jest.fn().mockResolvedValue(0),
+        getUserMarketId: jest.fn().mockResolvedValue('market_b'),
+        findById: jest.fn().mockResolvedValue({
+          id: 'req_1',
+          title: 'iPhone 13',
+          requesterId: 'buyer_1',
+          requester: { marketId: 'market_a' },
+        }),
+        getOrCreateChatThread,
+      });
+
+      await expect(service.openChat('req_1', 'vendor_1')).rejects.toThrow(
+        'This request is from a different market',
+      );
+      expect(getOrCreateChatThread).not.toHaveBeenCalled();
+    });
+
+    it('only searches inventory of vendors in the requester\'s market', async () => {
+      await (service as any).matchAndNotifyVendors('req_1', 'iPhone 13', 'buyer_1', 'market_a');
+      expect(prisma.inventoryItem.findMany.mock.calls[0][0].where.user.marketId).toBe(
+        'market_a',
+      );
+    });
+
+    it('sends a new request live only to the members of the requester\'s market', async () => {
+      const broadcastNewRequest = jest.fn();
+      const gateway = (service as any).chatGateway;
+      gateway.broadcastNewRequest = broadcastNewRequest;
+      Object.assign(requestsRepository, {
+        getUserSubscriptionPlan: jest.fn().mockResolvedValue('Premium'),
+        create: jest.fn().mockResolvedValue({
+          id: 'req_9',
+          title: 'JBL speaker',
+          status: 'ACTIVE',
+          createdAt: new Date(),
+          requester: { id: 'buyer_1', fullName: 'Buyer', isVerified: false, marketId: 'market_a' },
+        }),
+        findMarketMemberIds: jest.fn().mockResolvedValue(['v_a1', 'v_a2']),
+      });
+
+      await service.create('buyer_1', { title: 'JBL speaker' });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(requestsRepository.findMarketMemberIds).toHaveBeenCalledWith('market_a', 'buyer_1');
+      expect(broadcastNewRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'req_9' }),
+        ['v_a1', 'v_a2'],
+      );
+    });
+
+    it('drops a notification caused by someone in another market', async () => {
+      const notifications = (service as any).notificationsService as NotificationsService;
+      prisma.user.findMany = jest
+        .fn()
+        .mockResolvedValue([{ marketId: 'market_a' }, { marketId: 'market_b' }]);
+
+      const result = await notifications.notifyUser('buyer_1', 'Hi', 'New message', undefined, {
+        fromUserId: 'vendor_1',
+      });
+
+      expect(result).toBeNull();
+      expect(prisma.notification.create).not.toHaveBeenCalled();
+      expect(server.to).not.toHaveBeenCalled();
+    });
+
+    it('delivers a notification caused by someone in the same market', async () => {
+      const notifications = (service as any).notificationsService as NotificationsService;
+      prisma.user.findMany = jest
+        .fn()
+        .mockResolvedValue([{ marketId: 'market_a' }, { marketId: 'market_a' }]);
+
+      await notifications.notifyUser('buyer_1', 'Hi', 'New message', undefined, {
+        fromUserId: 'vendor_1',
+      });
+
+      expect(prisma.notification.create).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('emits match events only to the matched vendor room, never globally', async () => {

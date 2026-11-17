@@ -23,22 +23,39 @@ export class RequestsRepository {
             id: true,
             fullName: true,
             isVerified: true,
+            marketId: true,
           },
         },
       },
     });
   }
 
-  async findOpenRequests(currentUserId: string, skip = 0, take = 20, search?: string) {
-    const blocked = await this.prisma.blockedVendor.findMany({
-      where: {
-        OR: [
-          { userId: currentUserId },
-          { vendorId: currentUserId },
-        ],
-      },
-      select: { userId: true, vendorId: true },
+  /** Everyone else in a market (null: the accounts with no market yet), for live feed updates */
+  async findMarketMemberIds(marketId: string | null, excludeUserId: string) {
+    const users = await this.prisma.user.findMany({
+      where: { marketId, deletedAt: null, id: { not: excludeUserId } },
+      select: { id: true },
     });
+    return users.map((u) => u.id);
+  }
+
+  /** Only requests from people in the viewer's own market are listed */
+  async findOpenRequests(currentUserId: string, skip = 0, take = 20, search?: string) {
+    const [viewer, blocked] = await Promise.all([
+      this.prisma.user.findUnique({
+        where: { id: currentUserId },
+        select: { marketId: true },
+      }),
+      this.prisma.blockedVendor.findMany({
+        where: {
+          OR: [
+            { userId: currentUserId },
+            { vendorId: currentUserId },
+          ],
+        },
+        select: { userId: true, vendorId: true },
+      }),
+    ]);
     const excludedUserIds = new Set<string>([currentUserId]);
     for (const b of blocked) {
       if (b.userId === currentUserId) excludedUserIds.add(b.vendorId);
@@ -49,6 +66,7 @@ export class RequestsRepository {
       status: RequestStatus.ACTIVE,
       isDeleted: false,
       requesterId: { notIn: Array.from(excludedUserIds) },
+      requester: { marketId: viewer?.marketId ?? null },
     };
 
     if (search && search.trim()) {
@@ -176,6 +194,7 @@ export class RequestsRepository {
             id: true,
             fullName: true,
             isVerified: true,
+            marketId: true,
           },
         },
         fulfilledByVendor: {
@@ -290,6 +309,14 @@ export class RequestsRepository {
       select: { subscriptionPlan: true },
     });
     return user?.subscriptionPlan || 'Free';
+  }
+
+  async getUserMarketId(userId: string): Promise<string | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { marketId: true },
+    });
+    return user?.marketId ?? null;
   }
 }
 

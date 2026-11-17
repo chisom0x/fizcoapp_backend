@@ -68,11 +68,20 @@ export class RequestsService {
       createdAt: request.createdAt,
     };
 
-    // Broadcast in real-time to all connected mobile clients
-    this.chatGateway.broadcastNewRequest(formatted);
+    const marketId = request.requester.marketId;
+
+    // Live feed update for everyone in the requester's market; nobody else sees the request
+    this.requestsRepository
+      .findMarketMemberIds(marketId, userId)
+      .then((memberIds) => this.chatGateway.broadcastNewRequest(formatted, memberIds))
+      .catch((err) =>
+        this.logger.error(
+          `Failed to broadcast request ${request.id}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
 
     // Asynchronously extract gadget brand/model and notify matching vendors
-    this.matchAndNotifyVendors(request.id, request.title, userId).catch(() => {});
+    this.matchAndNotifyVendors(request.id, request.title, userId, marketId).catch(() => {});
 
     return formatted;
   }
@@ -156,6 +165,7 @@ export class RequestsService {
     requestId: string,
     title: string,
     requesterId: string,
+    marketId: string | null,
   ) {
     try {
       const localExtracted = this.extractGadgetBrandAndKeywords(title);
@@ -179,6 +189,7 @@ export class RequestsService {
       const matches = await this.notificationsRepository.findVendorsWithMatchingInventory(
         brand,
         requesterId,
+        marketId,
         keywordSets,
       );
       this.logger.log(`Request ${requestId} ("${title}") matched ${matches.length} vendor(s)`);
@@ -443,10 +454,11 @@ export class RequestsService {
 
   async assertCanShowInterest(requestId: string, vendorId: string) {
     // The vendor is waiting on this to open the chat, so independent lookups run together
-    const [vendorPlan, interestsCount, request] = await Promise.all([
+    const [vendorPlan, interestsCount, request, vendorMarketId] = await Promise.all([
       this.requestsRepository.getUserSubscriptionPlan(vendorId),
       this.requestsRepository.countUserInterests(vendorId),
       this.requestsRepository.findById(requestId),
+      this.requestsRepository.getUserMarketId(vendorId),
     ]);
     const isPremium = vendorPlan.toLowerCase() === 'premium';
     if (!isPremium && interestsCount >= 1) {
@@ -461,6 +473,12 @@ export class RequestsService {
 
     if (request.requesterId === vendorId) {
       throw new BadRequestException('You cannot show interest in your own request');
+    }
+
+    // The feed only lists requests from the vendor's market; this holds for links and old
+    // notifications too
+    if ((request.requester.marketId ?? null) !== vendorMarketId) {
+      throw new ForbiddenException('This request is from a different market');
     }
 
     return request;
@@ -490,6 +508,7 @@ export class RequestsService {
       '🎉 Request Fulfilled by You!',
       `You were chosen to fulfill the request "${request.title}".`,
       { requestId, type: 'REQUEST_FULFILLED' },
+      { fromUserId: requesterId },
     );
 
     return {

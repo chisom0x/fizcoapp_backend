@@ -6,6 +6,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -154,6 +155,10 @@ export class AdminUpdateUserDto {
   shopAddress?: string;
 
   @IsOptional()
+  @IsUUID('4', { message: 'Choose a market from the list' })
+  marketId?: string;
+
+  @IsOptional()
   @Transform(lowerTrim)
   @IsEmail()
   email?: string;
@@ -164,4 +169,12 @@ export class AdminUpdateUserDto {
     message: 'Phone number must be digits, optionally starting with +',
   })
   phoneNumber?: string;
+}
+
+export class MarketNameDto {
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty({ message: 'Enter a market name' })
+  @MaxLength(80)
+  name: string;
 }

@@ -20,6 +20,7 @@ import { MediaService } from '../media/media.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
 import { NotificationsService } from '../notifications/notifications.service';
+import { MarketsService } from '../markets/markets.service';
 
 @Injectable()
 export class UsersService {
@@ -32,6 +33,7 @@ export class UsersService {
     private readonly mediaService: MediaService,
     private readonly notificationsService: NotificationsService,
     private readonly subscriptionsService: SubscriptionsService,
+    private readonly marketsService: MarketsService,
   ) {}
 
   async getProfile(userId: string) {
@@ -91,6 +93,7 @@ export class UsersService {
     // The shop address is optional, so an empty one clears it
     const shopAddress =
       dto.shopAddress === undefined ? undefined : dto.shopAddress.trim() || null;
+    if (dto.marketId) await this.marketsService.assertExists(dto.marketId);
     const updated = await this.usersRepository.updateProfile(userId, {
       ...dto,
       shopAddress,

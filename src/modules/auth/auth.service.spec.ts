@@ -21,6 +21,7 @@ describe('AuthService signup checks', () => {
       {} as any,
       { get: jest.fn() } as any,
       {} as any,
+      {} as any,
     );
   });
 

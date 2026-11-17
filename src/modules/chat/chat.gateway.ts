@@ -366,9 +366,11 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return result;
   }
 
-  broadcastNewRequest(request: any) {
-    if (this.server) {
-      this.server.emit('new_open_request', request);
+  /** To the given users only: a request is shown to people in the requester's market */
+  broadcastNewRequest(request: any, userIds: string[]) {
+    // to([]) would address every socket, so an empty market sends nothing
+    if (this.server && userIds.length > 0) {
+      this.server.to(userIds.map((id) => `user_${id}`)).emit('new_open_request', request);
     }
   }
 
